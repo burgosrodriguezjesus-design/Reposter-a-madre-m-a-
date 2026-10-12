@@ -35,6 +35,8 @@ export async function pingRedis(): Promise<boolean | null> {
   const r = getRedis();
   if (!r) return null;
   try {
+    // Recién creada, la conexión puede estar estableciéndose: se espera hasta 1 s
+    if (r.status !== "ready") await new Promise<void>((resolve) => { const t = setTimeout(resolve, 1000); r.once("ready", () => { clearTimeout(t); resolve(); }); });
     return (await r.ping()) === "PONG";
   } catch {
     return false;

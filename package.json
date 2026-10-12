@@ -21,7 +21,8 @@
     "keys:rotate": "tsx scripts/encrypt-data.ts",
     "db:check-security": "tsx scripts/check-db-security.ts",
     "db:least-privilege": "psql \"$ADMIN_DATABASE_URL\" -v ON_ERROR_STOP=1 -f prisma/sql/least-privilege.sql",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:security": "tsx scripts/security-tests.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

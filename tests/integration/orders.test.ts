@@ -63,10 +63,28 @@ describe("integridad de pedidos", () => {
     const input = orderInput(product.id, slot, 300);
     const key = `test-${Date.now()}-abcdefghijklmnop`;
     const results = await Promise.allSettled(Array.from({ length: 10 }, () => createOrder(input, { idempotencyKey: key, requestHash: "h1" })));
-    const numbers = new Set(results.filter((r) => r.status === "fulfilled").map((r) => (r as PromiseFulfilledResult<{ number: string }>).value.number));
+    // Todas las peticiones reciben el MISMO pedido (ninguna falla)
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+    const numbers = new Set(results.map((r) => (r as PromiseFulfilledResult<{ number: string }>).value.number));
     expect(numbers.size).toBe(1);
     expect(await db.order.count({ where: { idempotencyKey: key } })).toBe(1);
     await expect(createOrder(input, { idempotencyKey: key, requestHash: "otro" })).rejects.toBeInstanceOf(IdempotencyConflictError);
+  });
+
+  it("idempotencia: el reintento recibe el pedido aunque la primera petición ocupara el último hueco o la última unidad", async () => {
+    const settings = await getSettings();
+    await saveSettings("ordering", { ...settings.ordering, maxOrdersPerSlot: 1 });
+    try {
+      const product = await makeProduct(1);
+      const slot = await openSlot(0, 10);
+      const input = orderInput(product.id, slot, 350);
+      const key = `test-last-${Date.now()}-abcdefghij`;
+      const results = await Promise.allSettled(Array.from({ length: 6 }, () => createOrder(input, { idempotencyKey: key, requestHash: "h" })));
+      expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+      expect(new Set(results.map((r) => (r as PromiseFulfilledResult<{ number: string }>).value.number)).size).toBe(1);
+    } finally {
+      await saveSettings("ordering", { ...settings.ordering, maxOrdersPerSlot: 0 });
+    }
   });
 
   it("los importes se calculan en el servidor (un precio manipulado en el cliente no existe en la API)", async () => {

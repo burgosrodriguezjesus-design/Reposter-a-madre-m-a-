@@ -429,7 +429,8 @@ export async function createOrder(input: CreateOrderInput, options: CreateOption
     order = await createOrderRecord(input, cart, ctx, { status, paymentMethod, quoteRequestId: quote?.id, idempotencyKey, requestHash });
   } catch (error) {
     // Dos peticiones simultáneas con la misma clave: la segunda devuelve el resultado de la primera
-    if (idempotencyKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    // (también si falló por capacidad o stock porque la primera ocupó el último hueco)
+    if (idempotencyKey) {
       const replay = await replayOrder(idempotencyKey, requestHash);
       if (replay) return replay;
     }
@@ -602,8 +603,12 @@ async function createOrderRecord(
         { maxWait: 10_000, timeout: 15_000 },
       );
     } catch (error) {
-      // Colisión improbable del número de pedido: se reintenta con otro
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && !String(error.meta?.target ?? "").includes("idempotencyKey")) continue;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        // Otra petición con la misma clave de idempotencia se adelantó: la capa superior devuelve su pedido
+        // (Prisma no siempre indica qué columna chocó, así que se comprueba directamente)
+        if (opts.idempotencyKey && (await db.order.count({ where: { idempotencyKey: opts.idempotencyKey } })) > 0) throw error;
+        continue; // colisión improbable del número de pedido: se reintenta con otro
+      }
       throw error;
     }
   }
