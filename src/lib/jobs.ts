@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db, type Tx } from "@/lib/db";
 import { log, maskString } from "@/lib/logger";
@@ -22,12 +23,14 @@ export async function enqueue(
   opts: { dedupeKey?: string; runAt?: Date; maxAttempts?: number; tx?: Tx } = {},
 ): Promise<void> {
   const client = opts.tx ?? db;
-  const data = { type, payload, dedupeKey: opts.dedupeKey, runAt: opts.runAt, maxAttempts: opts.maxAttempts };
   if (opts.dedupeKey) {
-    // Idempotente: si ya existe un trabajo con esa clave, no se duplica.
-    await client.job.upsert({ where: { dedupeKey: opts.dedupeKey }, create: data, update: {} });
+    // Idempotente y atómico incluso con llamadas simultáneas (un upsert de Prisma no lo es)
+    await client.$executeRaw`
+      INSERT INTO "Job" ("id", "type", "payload", "dedupeKey", "status", "attempts", "maxAttempts", "runAt", "createdAt", "updatedAt")
+      VALUES (${randomUUID()}, ${type}, ${JSON.stringify(payload)}::jsonb, ${opts.dedupeKey}, 'PENDING', 0, ${opts.maxAttempts ?? 8}, ${opts.runAt ?? new Date()}, now(), now())
+      ON CONFLICT ("dedupeKey") DO NOTHING`;
   } else {
-    await client.job.create({ data });
+    await client.job.create({ data: { type, payload, runAt: opts.runAt, maxAttempts: opts.maxAttempts } });
   }
 }
 

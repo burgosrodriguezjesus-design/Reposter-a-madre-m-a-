@@ -108,9 +108,15 @@ CF_API_TOKEN=... CF_ZONE_ID=... CF_ACCOUNT_ID=... ./apply.sh --plan pro --apply
 5. La app con `TRUST_PROXY=nginx`: nginx resuelve la IP real con el módulo realip
    (solo confía en `CF-Connecting-IP` si la conexión viene de Cloudflare) y la envía
    en `X-Real-IP`, **sobrescribiendo** `X-Real-IP` y `X-Forwarded-For` del cliente.
+   `TRUST_PROXY=cloudflare` (la app lee `CF-Connecting-IP` directamente) solo es
+   seguro si Cloudflare conecta **directamente** con la app sin nginx en medio y el
+   cortafuegos del host solo admite los rangos de Cloudflare; si no, cualquiera que
+   llegue al origen podría falsear su IP con esa cabecera.
 
 Prueba funcional hecha en este entorno con nginx 1.24 (copias con rutas temporales y
-puerto 18443, certificados autofirmados):
+puerto 18443, certificados autofirmados, una CA de prueba en lugar de la de
+Cloudflare y `127.0.0.2` añadida a los rangos "de Cloudflare" solo en la copia; la
+app sustituida por un servidor Python que devuelve las cabeceras recibidas):
 
 | Caso | Resultado |
 | --- | --- |

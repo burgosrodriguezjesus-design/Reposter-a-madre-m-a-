@@ -34,6 +34,8 @@ HTTP_PORT="${TEST_HTTP_PORT:-8080}"
 HTTPS_PORT="${TEST_HTTPS_PORT:-8443}"
 BACKEND_PORT="${BACKEND_PORT:-3999}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/nginx-validate.XXXXXX")"
+# Las peticiones de prueba van siempre directas a 127.0.0.1 (nunca por un proxy HTTP(S) del entorno)
+export NO_PROXY="*" no_proxy="*"
 ETC="$WORK/etc-nginx"
 PIDS=()
 
@@ -154,10 +156,16 @@ else
   warn "Sin MODSEC_MODULE: se valida solo nginx (las directivas de ModSecurity no se cargan)"
 fi
 
+# Directivas globales solo para la prueba. Si se ejecuta como root, los workers usarían "nobody",
+# que no puede escribir en $WORK (caché, temporales): se ejecutan como root SOLO en esta prueba.
+# (En la imagen CRS nginx corre ya sin privilegios y la directiva "user" no aplica.)
+GLOBAL_DIRECTIVES="error_log $WORK/error.log warn;"
+[ "$(id -u)" = "0" ] && GLOBAL_DIRECTIVES="$GLOBAL_DIRECTIVES user root;"
+
 # ── 5. nginx -t ──
 info "nginx -t -c $ETC/nginx.conf"
-"$NGINX_BIN" -t -p "$WORK" -c "$ETC/nginx.conf" -g "error_log $WORK/error.log warn;" 2>&1 | sed 's/^/    /'
-"$NGINX_BIN" -t -q -p "$WORK" -c "$ETC/nginx.conf" -g "error_log $WORK/error.log warn;"
+"$NGINX_BIN" -t -p "$WORK" -c "$ETC/nginx.conf" -g "$GLOBAL_DIRECTIVES" 2>&1 | sed 's/^/    /'
+"$NGINX_BIN" -t -q -p "$WORK" -c "$ETC/nginx.conf" -g "$GLOBAL_DIRECTIVES"
 info "Sintaxis correcta"
 
 [ "${RUN_FUNCTIONAL:-0}" = "1" ] || exit 0
@@ -208,14 +216,15 @@ PY
 PIDS+=("$!")
 
 info "Arrancando nginx"
-"$NGINX_BIN" -p "$WORK" -c "$ETC/nginx.conf" -g "error_log $WORK/error.log warn;" > "$WORK/access.log" 2>&1
+"$NGINX_BIN" -p "$WORK" -c "$ETC/nginx.conf" -g "$GLOBAL_DIRECTIVES" > "$WORK/access.log" 2>&1
 for _ in $(seq 1 50); do
-  curl -s -o /dev/null "http://127.0.0.1:$BACKEND_PORT/" && break
+  curl --noproxy '*' -s -o /dev/null "http://127.0.0.1:$BACKEND_PORT/" \
+    && curl --noproxy '*' -s -o /dev/null "http://127.0.0.1:$HTTP_PORT/" && break
   sleep 0.1
 done
 
 PASS=0; FAIL=0
-R=(--resolve "$SERVER_NAME:$HTTPS_PORT:127.0.0.1" --resolve "$SERVER_NAME:$HTTP_PORT:127.0.0.1" -k -s)
+R=(--noproxy '*' -m 10 --resolve "$SERVER_NAME:$HTTPS_PORT:127.0.0.1" --resolve "$SERVER_NAME:$HTTP_PORT:127.0.0.1" -k -s)
 BASE="https://$SERVER_NAME:$HTTPS_PORT"
 check() { # check "descripción" esperado obtenido
   if [ "$2" = "$3" ]; then PASS=$((PASS+1)); printf '  \033[32mOK\033[0m   %-62s %s\n' "$1" "$3"
@@ -231,16 +240,22 @@ check "HTTP → HTTPS (301)" 301 "$(code "http://$SERVER_NAME:$HTTP_PORT/product
 check "Location al host canónico" "https://$SERVER_NAME/productos?x=1" \
   "$(hdr -H 'Host: evil.example' "http://127.0.0.1:$HTTP_PORT/productos?x=1" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')"
 check "SNI desconocido: handshake rechazado (curl 000)" 000 \
-  "$(curl -k -s -o /dev/null -w '%{http_code}' --resolve "otro.example:$HTTPS_PORT:127.0.0.1" "https://otro.example:$HTTPS_PORT/")"
+  "$(curl --noproxy '*' -k -s -o /dev/null -w '%{http_code}' --resolve "otro.example:$HTTPS_PORT:127.0.0.1" "https://otro.example:$HTTPS_PORT/")"
 check "TLS 1.1 rechazado" 000 "$(code --tlsv1.1 --tls-max 1.1 "$BASE/")"
 check "TLS 1.2 aceptado" 200 "$(code --tlsv1.2 --tls-max 1.2 "$BASE/")"
 check "HTTP/2 negociado" 2 "$(curl "${R[@]}" --http2 -o /dev/null -w '%{http_version}' "$BASE/")"
 
 echo "Cabeceras hacia la app"
-J="$(body -H 'X-Forwarded-For: 6.6.6.6' -H 'X-Real-IP: 6.6.6.6' -H 'x-middleware-subrequest: middleware' "$BASE/")"
+J="$(body -H 'X-Forwarded-For: 6.6.6.6' -H 'X-Real-IP: 6.6.6.6' "$BASE/")"
 check "X-Real-IP = IP real" "127.0.0.1" "$(echo "$J" | python3 -c 'import sys,json;print(json.load(sys.stdin)["x_real_ip"])')"
 check "X-Forwarded-For sobrescrito" "127.0.0.1" "$(echo "$J" | python3 -c 'import sys,json;print(json.load(sys.stdin)["xff"])')"
-check "x-middleware-subrequest eliminado" "None" "$(echo "$J" | python3 -c 'import sys,json;print(json.load(sys.stdin)["mw_subrequest"])')"
+# x-middleware-subrequest (CVE-2025-29927): con WAF, CRS 4 lo rechaza (regla 920450); sin WAF,
+# nginx lo vacía antes de llegar a la app. En ambos casos la app nunca lo recibe.
+if [ -n "${MODSEC_MODULE:-}" ]; then
+  check "x-middleware-subrequest rechazado por el WAF (920450)" 403 "$(code -H 'x-middleware-subrequest: middleware' "$BASE/")"
+else
+  check "x-middleware-subrequest eliminado" "None" "$(body -H 'x-middleware-subrequest: middleware' "$BASE/" | python3 -c 'import sys,json;print(json.load(sys.stdin)["mw_subrequest"])')"
+fi
 check "Host / X-Forwarded-Host públicos" "$SERVER_NAME/$SERVER_NAME" "$(echo "$J" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["host"]+"/"+d["xfh"])')"
 check "X-Forwarded-Proto https" "https" "$(echo "$J" | python3 -c 'import sys,json;print(json.load(sys.stdin)["xfp"])')"
 H="$(hdr "$BASE/" | tr -d '\r')"
@@ -254,6 +269,7 @@ done
 check "TRACE → 405" 405 "$(code -X TRACE "$BASE/")"
 check "GET /api/stripe/webhook → 403 (solo POST)" 403 "$(code "$BASE/api/stripe/webhook")"
 check "/healthz desde 127.0.0.1" 200 "$(code "$BASE/healthz")"
+check "/healthz por HTTP (healthcheck del contenedor)" 200 "$(code "http://127.0.0.1:$HTTP_PORT/healthz")"
 
 echo "Caché"
 code "$BASE/_next/static/chunks/main-abc123.js" > /dev/null
@@ -273,6 +289,7 @@ echo "Límites de tasa"
 codes=""; for _ in $(seq 1 8); do codes="$codes $(code -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'a=1' "$BASE/admin/login")"; done
 check "POST /admin/login: 6 permitidos y luego 429" " 200 200 200 200 200 200 429 429" "$codes"
 check "GET /admin/login no consume el límite de login" 200 "$(code "$BASE/admin/login")"
+sleep 3   # vacía la zona req_orders (las pruebas de caché de /api/orders/1 ya consumieron cupo)
 codes=""; for _ in $(seq 1 7); do codes="$codes $(code -X POST -H 'Content-Type: application/json' -d '{}' "$BASE/api/orders")"; done
 check "POST /api/orders: 5 permitidos (2 r/s ráfaga 4) y luego 429" " 200 200 200 200 200 429 429" "$codes"
 
@@ -280,7 +297,8 @@ if [ "$WAF_ON" = "1" ]; then
   echo "WAF (ModSecurity + OWASP CRS)"
   check "SQLi en query → 403" 403 "$(code "$BASE/productos?q=1%27%20OR%20%271%27%3D%271")"
   check "XSS en query → 403" 403 "$(code "$BASE/productos?q=%3Cscript%3Ealert(1)%3C/script%3E")"
-  check "Path traversal → 403/404" 1 "$(c=$(code --path-as-is "$BASE/uploads/../../etc/passwd"); [ "$c" = 403 ] || [ "$c" = 404 ] || [ "$c" = 400 ]; echo $?; )"
+  check "Path traversal → 400/403/404" 0 "$(c=$(code --path-as-is "$BASE/uploads/../../etc/passwd"); [ "$c" = 403 ] || [ "$c" = 404 ] || [ "$c" = 400 ]; echo $?; )"
+  check "Path traversal codificado → 400/403/404" 0 "$(c=$(code --path-as-is "$BASE/uploads/..%2f..%2f..%2fetc%2fpasswd"); [ "$c" = 403 ] || [ "$c" = 404 ] || [ "$c" = 400 ]; echo $?; )"
   check "Página de bloqueo con código de referencia" 1 "$(body "$BASE/productos?q=%3Cscript%3Ealert(1)%3C/script%3E" | grep -c 'Solicitud bloqueada')"
   AID="6080c4009eeb3d274dafe40639d86a3204d4ac74cf"
   TREE='%5B%22%22%2C%7B%22children%22%3A%5B%22(site)%22%2C%7B%22children%22%3A%5B%22producto%22%2C%7B%7D%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D'

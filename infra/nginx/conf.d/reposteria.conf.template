@@ -28,6 +28,16 @@ server {
         try_files $uri =404;
     }
 
+    # Comprobación de salud del contenedor (healthcheck de docker-compose.prod.yml).
+    # Solo desde dentro del propio contenedor; sin TLS ni SNI para no depender del certificado.
+    location = /healthz {
+        allow 127.0.0.1;
+        deny all;
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
     # Siempre al host canónico (nunca al Host que mande el cliente: evita redirecciones abiertas)
     location / {
         return 301 https://${SERVER_NAME}$request_uri;

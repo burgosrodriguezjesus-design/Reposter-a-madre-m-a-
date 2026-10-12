@@ -143,6 +143,20 @@ pasa (regla 1) y que los monitores de disponibilidad no dan falsos positivos
 (pausa los que no sean navegador o márcalo como mantenimiento). Desactívalo en
 cuanto pase el ataque: añade fricción a todos los clientes.
 
+### Cron cada minuto y el firewall
+
+- `/api/cron/jobs` debe llamarse **cada minuto**. Vercel Cron solo admite esa
+  frecuencia en planes de pago; el `vercel.json` actual del repositorio la programa a
+  diario (válido en Hobby). En Pro cambia su `schedule` a `* * * * *`; en Hobby usa un
+  planificador externo (p. ej. *schedules* de Upstash QStash, que reenvía la
+  cabecera `Authorization: Bearer $CRON_SECRET` si se le pasa como
+  `Upstash-Forward-Authorization`; compruébalo en su documentación).
+- La regla 2 solo deja pasar a Vercel Cron (User-Agent `vercel-cron/`). Un
+  planificador externo no la cumple: no le afectan las reglas de challenge (que
+  excluyen `/api/*`), pero **sí el Attack Challenge Mode**. Si usas uno, añade una
+  regla de *bypass* para `/api/cron` con su User-Agent/IP **y** la cabecera
+  `authorization` (la app sigue exigiendo el secreto).
+
 ## Protección DDoS incluida
 
 - Vercel aplica mitigación DDoS automática en capas 3, 4 y 7 en todos los planes,
