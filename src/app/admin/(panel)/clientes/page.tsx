@@ -2,31 +2,46 @@ import { Download, Search, Trash2 } from "lucide-react";
 import { Badge, Empty, PageHeader } from "@/components/admin/ui";
 import { ConfirmButton } from "@/components/admin/forms";
 import { db } from "@/lib/db";
+import { normalizePhone } from "@/lib/crypto";
+import { matchesText, parsePiiQuery, SCAN_LIMIT } from "@/lib/pii-search";
 import { formatPrice } from "@/lib/format";
 import { deleteCustomerData } from "./actions";
+import { auditAdmin, requirePermission } from "@/lib/auth";
+import { can } from "@/lib/rbac";
 
 export const metadata = { title: "Clientes" };
 
 export default async function CustomersPage({ searchParams }: PageProps<"/admin/clientes">) {
+  const admin = await requirePermission("customers.view");
   const { q } = await searchParams;
   const query = typeof q === "string" ? q.trim() : "";
-  const customers = await db.customer.findMany({
-    where: query
-      ? { OR: [{ name: { contains: query, mode: "insensitive" } }, { email: { contains: query.toLowerCase() } }, { phone: { contains: query } }] }
-      : {},
+  const search = parsePiiQuery(query);
+  await auditAdmin(admin, { action: "customers.list", entity: "Customer", details: { search: search.kind } });
+  const found = await db.customer.findMany({
+    where: search.kind === "email" ? { emailHash: search.hash } : {},
     include: { _count: { select: { orders: true, reminders: { where: { active: true } } } } },
     orderBy: { updatedAt: "desc" },
-    take: 200,
+    take: search.kind === "text" || search.kind === "phone" ? SCAN_LIMIT : 200,
   });
+  // Nombre y teléfono están cifrados: se comparan tras descifrar los clientes más recientes.
+  const phone = search.kind === "phone" ? normalizePhone(query) : "";
+  const customers =
+    search.kind === "text"
+      ? found.filter((c) => matchesText(search.needle, c.name, c.email)).slice(0, 200)
+      : search.kind === "phone"
+        ? found.filter((c) => c.phone && normalizePhone(c.phone) === phone).slice(0, 200)
+        : found;
   return (
     <>
       <PageHeader
         title="Clientes"
         description="Se crean automáticamente con cada pedido. Solo puedes enviar publicidad a quien lo ha autorizado."
         actions={
-          <a href="/api/admin/clientes.csv" className="btn-outline btn-sm">
-            <Download className="size-4" /> Exportar con consentimiento (CSV)
-          </a>
+          can(admin.role, "customers.export") ? (
+            <a href="/api/admin/clientes.csv" className="btn-outline btn-sm">
+              <Download className="size-4" /> Exportar con consentimiento (CSV)
+            </a>
+          ) : null
         }
       />
       <form className="mb-4 flex gap-2">
@@ -55,6 +70,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/admin/
                 {c.marketingConsent && <Badge className="bg-emerald-100 text-emerald-900">Acepta novedades</Badge>}
                 {c._count.reminders > 0 && <Badge className="bg-blush-100 text-blush-800">{c._count.reminders} recordatorios</Badge>}
               </div>
+              {can(admin.role, "customers.delete") && (
               <form action={deleteCustomerData}>
                 <input type="hidden" name="id" value={c.id} />
                 <ConfirmButton
@@ -64,6 +80,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/admin/
                   <Trash2 className="size-4" />
                 </ConfirmButton>
               </form>
+              )}
             </li>
           ))}
         </ul>

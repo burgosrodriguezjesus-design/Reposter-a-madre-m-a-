@@ -1,0 +1,36 @@
+# Uso:  kubectl apply -k infra/k8s      (o: kustomize build infra/k8s | kubectl apply -f -)
+# PLANTILLA NO PROBADA EN UN CLÚSTER: revisa README.md antes de aplicar.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: reposteria
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - externalsecret.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+  - cronjobs.yaml
+  - backup-pvc.yaml
+  # Opcionales (requieren CRDs de Prometheus Operator / Cilium):
+  # - optional/servicemonitor.yaml
+  # - optional/cilium-egress-fqdn.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: reposteria
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+images:
+  # Sustituye por tu registro y fija la versión por digest (sha256) en producción.
+  - name: ghcr.io/example/reposteria
+    newTag: "1.0.0"
+  - name: ghcr.io/example/reposteria-backup
+    newTag: "1.0.0"

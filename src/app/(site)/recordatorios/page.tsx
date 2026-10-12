@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BellRing } from "lucide-react";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { emailHash } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { secureToken } from "@/lib/ids";
 import { limitByIp } from "@/lib/rate-limit";
@@ -36,8 +37,8 @@ async function subscribe(formData: FormData) {
   if (!parsed.success) redirect("/recordatorios?error=datos");
   const { name, email, label, day, month } = parsed.data;
   const customer = await db.customer.upsert({
-    where: { email },
-    create: { email, name, unsubscribeToken: secureToken() },
+    where: { emailHash: emailHash(email) },
+    create: { email, emailHash: emailHash(email), name, unsubscribeToken: secureToken() },
     update: {},
   });
   const count = await db.celebrationReminder.count({ where: { customerId: customer.id, active: true } });

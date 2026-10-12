@@ -1,0 +1,161 @@
+# SLO de disponibilidad del 99,95 % (ventana móvil de 30 días) con alertas de
+# "burn rate" multi-ventana (método del libro "The Site Reliability Workbook").
+# PLANTILLA NO PROBADA con Prometheus real (promtool no disponible en este entorno).
+#
+# SLI (lado servidor): proporción de peticiones de clientes que NO terminan en 5xx.
+#   - Se excluyen /api/health*, /api/metrics y /api/cron* (no son tráfico de clientes).
+#   - Los 429 (rate limit) y 4xx no consumen presupuesto: son respuestas correctas.
+# Presupuesto de error: 1 - 0,9995 = 0,0005 (0,05 %), unos 21,6 minutos de caída
+# total en 30 días.
+#
+# Limitación: si la app está completamente caída no hay peticiones que contar. Por
+# eso se registra también la disponibilidad vista por las sondas externas
+# (blackbox-public) y se recomiendan los monitores de uptime-checks.md.
+#
+# Consultas útiles (Grafana / consola de Prometheus):
+#   Disponibilidad 30 d:                reposteria:slo_availability:ratio30d
+#   Presupuesto restante (1 = intacto): reposteria:slo_error_budget_remaining:ratio30d
+#   Burn rate actual (1 h):             reposteria:slo_error_ratio:rate1h / 0.0005
+#   Disponibilidad según sondas 30 d:   reposteria:slo_probe_availability:ratio30d
+
+groups:
+  - name: reposteria-slo-registro
+    interval: 30s
+    rules:
+      # Peticiones y errores por ventana
+      - record: reposteria:slo_requests:rate5m
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[5m]))
+      - record: reposteria:slo_errors:rate5m
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[5m])) or vector(0)
+
+      - record: reposteria:slo_requests:rate30m
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[30m]))
+      - record: reposteria:slo_errors:rate30m
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[30m])) or vector(0)
+
+      - record: reposteria:slo_requests:rate1h
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[1h]))
+      - record: reposteria:slo_errors:rate1h
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[1h])) or vector(0)
+
+      - record: reposteria:slo_requests:rate2h
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[2h]))
+      - record: reposteria:slo_errors:rate2h
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[2h])) or vector(0)
+
+      - record: reposteria:slo_requests:rate6h
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[6h]))
+      - record: reposteria:slo_errors:rate6h
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[6h])) or vector(0)
+
+      - record: reposteria:slo_requests:rate1d
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[1d]))
+      - record: reposteria:slo_errors:rate1d
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[1d])) or vector(0)
+
+      - record: reposteria:slo_requests:rate3d
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[3d]))
+      - record: reposteria:slo_errors:rate3d
+        expr: sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*",status=~"5.."}[3d])) or vector(0)
+
+      # Ratio de error por ventana
+      - record: reposteria:slo_error_ratio:rate5m
+        expr: reposteria:slo_errors:rate5m / reposteria:slo_requests:rate5m
+      - record: reposteria:slo_error_ratio:rate30m
+        expr: reposteria:slo_errors:rate30m / reposteria:slo_requests:rate30m
+      - record: reposteria:slo_error_ratio:rate1h
+        expr: reposteria:slo_errors:rate1h / reposteria:slo_requests:rate1h
+      - record: reposteria:slo_error_ratio:rate2h
+        expr: reposteria:slo_errors:rate2h / reposteria:slo_requests:rate2h
+      - record: reposteria:slo_error_ratio:rate6h
+        expr: reposteria:slo_errors:rate6h / reposteria:slo_requests:rate6h
+      - record: reposteria:slo_error_ratio:rate1d
+        expr: reposteria:slo_errors:rate1d / reposteria:slo_requests:rate1d
+      - record: reposteria:slo_error_ratio:rate3d
+        expr: reposteria:slo_errors:rate3d / reposteria:slo_requests:rate3d
+
+      # Ventana del SLO (30 días), ponderada por tráfico a partir de las series de 5 min
+      # (más barato que rate(...[30d]) sobre el contador bruto). Requiere >= 30 d de
+      # retención en Prometheus (el compose usa 45 d).
+      - record: reposteria:slo_error_ratio:ratio30d
+        expr: sum_over_time(reposteria:slo_errors:rate5m[30d]) / sum_over_time(reposteria:slo_requests:rate5m[30d])
+      - record: reposteria:slo_availability:ratio30d
+        expr: 1 - reposteria:slo_error_ratio:ratio30d
+      - record: reposteria:slo_error_budget_remaining:ratio30d
+        expr: 1 - (reposteria:slo_error_ratio:ratio30d / 0.0005)
+
+      # Disponibilidad según las sondas HTTPS públicas (detecta caídas totales)
+      - record: reposteria:slo_probe_availability:ratio30d
+        expr: avg by (instance) (avg_over_time(probe_success{job="blackbox-public"}[30d]))
+
+      # SLI de latencia (informativo): proporción de peticiones servidas en <= 1 s.
+      # Prometheus 3 normaliza "le" a formato decimal ("1" -> "1.0"); el regex cubre ambos.
+      - record: reposteria:sli_latency_under_1s:ratio_rate1h
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{job="reposteria-app",route!~"/api/(health|metrics|cron|uploads).*",le=~"1(\\.0)?"}[1h]))
+          /
+          sum(rate(http_request_duration_seconds_count{job="reposteria-app",route!~"/api/(health|metrics|cron|uploads).*"}[1h]))
+
+  - name: reposteria-slo-alertas
+    rules:
+      # Quema rápida: 2 % del presupuesto mensual en 1 h (x14,4) o 5 % en 6 h (x6).
+      # Con poco tráfico, un par de errores pueden disparar el ratio: se exige un
+      # mínimo de 100 peticiones en la última hora para avisar.
+      - alert: ReposteriaErrorBudgetBurn
+        expr: |
+          (
+            (
+              reposteria:slo_error_ratio:rate1h > (14.4 * 0.0005)
+              and
+              reposteria:slo_error_ratio:rate5m > (14.4 * 0.0005)
+            )
+            or
+            (
+              reposteria:slo_error_ratio:rate6h > (6 * 0.0005)
+              and
+              reposteria:slo_error_ratio:rate30m > (6 * 0.0005)
+            )
+          )
+          and
+          reposteria:slo_requests:rate1h * 3600 > 100
+        for: 2m
+        labels:
+          severity: critical
+          slo: disponibilidad-99.95
+        annotations:
+          summary: "SLO 99,95 %: el presupuesto de error se está quemando muy rápido"
+          description: "Ratio de error actual {{ $value | humanizePercentage }}. A este ritmo el presupuesto de 30 días se agota en horas o pocos días."
+          runbook: "infra/monitoring/README.md#latencia-o-errores-5xx"
+
+      # Quema lenta: 10 % del presupuesto en 1 día (x3) o 10 % en 3 días (x1).
+      - alert: ReposteriaErrorBudgetBurn
+        expr: |
+          (
+            reposteria:slo_error_ratio:rate1d > (3 * 0.0005)
+            and
+            reposteria:slo_error_ratio:rate2h > (3 * 0.0005)
+          )
+          or
+          (
+            reposteria:slo_error_ratio:rate3d > (1 * 0.0005)
+            and
+            reposteria:slo_error_ratio:rate6h > (1 * 0.0005)
+          )
+        for: 15m
+        labels:
+          severity: warning
+          slo: disponibilidad-99.95
+        annotations:
+          summary: "SLO 99,95 %: consumo sostenido del presupuesto de error"
+          description: "Ratio de error {{ $value | humanizePercentage }} sostenido. Revisar en horario laboral."
+          runbook: "infra/monitoring/README.md#latencia-o-errores-5xx"
+
+      - alert: ReposteriaErrorBudgetExhausted
+        expr: reposteria:slo_error_budget_remaining:ratio30d < 0
+        for: 30m
+        labels:
+          severity: warning
+          slo: disponibilidad-99.95
+        annotations:
+          summary: "SLO 99,95 % incumplido en los últimos 30 días"
+          description: "Disponibilidad a 30 días por debajo del objetivo. Priorizar fiabilidad sobre nuevas funciones hasta recuperar presupuesto."

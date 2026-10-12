@@ -14,24 +14,109 @@ datasource db {
 
 // ─────────────────────────── Administración ───────────────────────────
 
-model AdminUser {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String
-  passwordHash String
-  createdAt    DateTime  @default(now())
-  lastLoginAt  DateTime?
+enum AdminRole {
+  OWNER // Propietario: acceso total
+  MANAGER // Encargado: catálogo, pedidos, marketing (sin usuarios, ajustes ni exportaciones)
+  STAFF // Empleado: pedidos del día y calendario
 }
 
+model AdminUser {
+  id                String         @id @default(cuid())
+  email             String         @unique
+  name              String
+  /// Argon2id (los hashes bcrypt antiguos se migran al iniciar sesión)
+  passwordHash      String
+  role              AdminRole      @default(STAFF)
+  active            Boolean        @default(true)
+  /// Secreto TOTP cifrado con AES-256-GCM
+  totpSecret        String?
+  totpEnabledAt     DateTime?
+  /// Último intervalo TOTP aceptado (impide reutilizar un código)
+  totpLastStep      Int?
+  /// Códigos de recuperación (hash SHA-256), de un solo uso
+  recoveryCodes     String[]
+  failedLogins      Int            @default(0)
+  lockedUntil       DateTime?
+  passwordChangedAt DateTime       @default(now())
+  createdAt         DateTime       @default(now())
+  lastLoginAt       DateTime?
+  sessions          AdminSession[]
+  passkeys          AdminPasskey[]
+}
+
+/// Sesiones del panel guardadas en servidor (revocables). El id es el SHA-256 del token de la cookie.
+model AdminSession {
+  id            String    @id
+  userId        String
+  user          AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mfaVerified   Boolean   @default(false)
+  mfaAttempts   Int       @default(0)
+  /// Reto WebAuthn pendiente
+  challenge     String?
+  ipHash        String?
+  deviceHash    String?
+  deviceLabel   String?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Passkeys / llaves de seguridad (WebAuthn) como segundo factor
+model AdminPasskey {
+  id         String    @id
+  userId     String
+  user       AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicKey  Bytes
+  counter    Int       @default(0)
+  transports String[]
+  deviceType String?
+  backedUp   Boolean   @default(false)
+  name       String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+}
+
+/// Intentos de acceso al panel. Solo se guardan huellas HMAC (sin IP ni email en claro).
 model LoginAttempt {
   id        String   @id @default(cuid())
-  ip        String
-  email     String
+  ipHash    String
+  emailHash String
   success   Boolean
   createdAt DateTime @default(now())
 
-  @@index([ip, createdAt])
-  @@index([email, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([emailHash, createdAt])
+}
+
+/// Registro de auditoría a prueba de manipulaciones: cada entrada incluye el hash de la anterior.
+model AuditLog {
+  id         String   @id @default(cuid())
+  seq        Int      @unique @default(autoincrement())
+  createdAt  DateTime @default(now())
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+  action     String
+  entity     String?
+  entityId   String?
+  severity   String   @default("info")
+  ipHash     String?
+  /// Detalles sin datos personales (p. ej. cambios de precio antes/después)
+  details    Json?
+  prevHash   String
+  hash       String
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([entity, entityId])
 }
 
 /// Ajustes clave-valor (negocio, pedidos, personalizador, SEO...). Ver src/lib/settings.ts
@@ -91,6 +176,8 @@ model Product {
   availability        ProductAvailability @default(AVAILABLE)
   /// Antelación mínima para encargarlo (horas)
   leadTimeHours       Int                 @default(24)
+  /// Unidades disponibles (null = sin límite). Se descuentan de forma atómica al pedir.
+  stock               Int?
   maxPerOrder         Int                 @default(10)
   featured            Boolean             @default(false)
   isNew               Boolean             @default(false)
@@ -110,6 +197,7 @@ model Product {
   updatedAt           DateTime            @updatedAt
 
   @@index([categoryId])
+  @@index([active, archived, categoryId])
 }
 
 model ProductImage {
@@ -176,9 +264,12 @@ model Order {
   /// Fecha (YYYY-MM-DD) y hora (HH:MM) locales de recogida/entrega
   scheduledDate         String
   scheduledTime         String
+  /// Datos personales cifrados (AES-256-GCM); búsquedas por índice ciego HMAC
   customerName          String
   customerEmail         String
+  customerEmailHash     String
   customerPhone         String
+  customerPhoneHash     String?
   customerId            String?
   customer              Customer?          @relation(fields: [customerId], references: [id])
   address               String?
@@ -197,6 +288,14 @@ model Order {
   giftCard              GiftCard?          @relation(fields: [giftCardId], references: [id])
   stripeSessionId       String?            @unique
   stripePaymentIntentId String?
+  /// URL de pago de Stripe (para responder igual a reintentos idempotentes)
+  checkoutUrl           String?
+  /// Clave de idempotencia enviada por el navegador: impide pedidos duplicados
+  idempotencyKey        String?            @unique
+  /// Huella de la petición original asociada a la clave de idempotencia
+  requestHash           String?
+  /// Fecha en que se anonimizaron los datos personales (política de conservación)
+  anonymizedAt          DateTime?
   /// Contiene tartas personalizadas u otros artículos que requieren revisión
   requiresReview        Boolean            @default(false)
   marketingConsent      Boolean            @default(false)
@@ -213,8 +312,10 @@ model Order {
   updatedAt             DateTime           @updatedAt
 
   @@index([status])
-  @@index([scheduledDate])
-  @@index([customerEmail])
+  @@index([scheduledDate, scheduledTime])
+  @@index([status, createdAt])
+  @@index([customerEmailHash])
+  @@index([customerPhoneHash])
   @@index([createdAt])
 }
 
@@ -242,12 +343,15 @@ model OrderItem {
 }
 
 model OrderStatusEvent {
-  id        String      @id @default(cuid())
-  orderId   String
-  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  status    OrderStatus
-  note      String?
-  createdAt DateTime    @default(now())
+  id         String      @id @default(cuid())
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status     OrderStatus
+  note       String?
+  /// Quién hizo el cambio (null = cliente o sistema)
+  actorId    String?
+  actorEmail String?
+  createdAt  DateTime    @default(now())
 
   @@index([orderId])
 }
@@ -274,6 +378,7 @@ model QuoteRequest {
   adminMessage      String?
   customerName      String
   customerEmail     String
+  customerEmailHash String
   customerPhone     String
   desiredDate       String
   fulfillment       Fulfillment @default(PICKUP)
@@ -284,13 +389,16 @@ model QuoteRequest {
   updatedAt         DateTime    @updatedAt
 
   @@index([status])
+  @@index([customerEmailHash])
 }
 
 // ─────────────────────────── Clientes y fidelización ───────────────────────────
 
 model Customer {
   id                 String                @id @default(cuid())
-  email              String                @unique
+  /// Cifrado; la unicidad se garantiza con emailHash
+  email              String
+  emailHash          String                @unique
   name               String
   phone              String?
   marketingConsent   Boolean               @default(false)
@@ -324,15 +432,19 @@ model CelebrationReminder {
 /// Carrito guardado para recordatorio (solo si el cliente lo autoriza)
 model AbandonedCart {
   id          String    @id @default(cuid())
-  email       String    @unique
+  email       String
+  emailHash   String    @unique
   name        String?
   token       String    @unique
-  cart        Json
+  /// Contenido del carrito (JSON cifrado)
+  cart        String
   consentAt   DateTime
   emailSentAt DateTime?
   recoveredAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  @@index([recoveredAt, emailSentAt, updatedAt])
 }
 
 // ─────────────────────────── Calendario y reparto ───────────────────────────
@@ -422,22 +534,27 @@ enum GiftCardStatus {
 }
 
 model GiftCard {
-  id              String         @id @default(cuid())
-  code            String         @unique
-  initialCents    Int
-  balanceCents    Int
-  status          GiftCardStatus
-  purchaserName   String
-  purchaserEmail  String
-  recipientName   String?
-  recipientEmail  String?
-  message         String?
-  paymentMethod   PaymentMethod?
-  stripeSessionId String?        @unique
-  expiresAt       DateTime?
-  orders          Order[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                 String         @id @default(cuid())
+  code               String         @unique
+  initialCents       Int
+  balanceCents       Int
+  status             GiftCardStatus
+  purchaserName      String
+  purchaserEmail     String
+  purchaserEmailHash String
+  recipientName      String?
+  recipientEmail     String?
+  recipientEmailHash String?
+  message            String?
+  paymentMethod      PaymentMethod?
+  stripeSessionId    String?        @unique
+  expiresAt          DateTime?
+  orders             Order[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([purchaserEmailHash])
+  @@index([recipientEmailHash])
 }
 
 enum ReviewStatus {
@@ -462,5 +579,80 @@ model Review {
   isDemo      Boolean      @default(false)
   createdAt   DateTime     @default(now())
 
+  @@index([status, createdAt])
+}
+
+// ─────────────────────────── Fiabilidad ───────────────────────────
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// Cola de trabajos transaccional (patrón outbox): emails y notificaciones con reintentos.
+/// El payload solo contiene identificadores, nunca datos personales.
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  payload     Json
+  dedupeKey   String?   @unique
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(8)
+  runAt       DateTime  @default(now())
+  lockedAt    DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+/// Eventos de Stripe ya procesados (evita procesar dos veces el mismo webhook)
+model StripeEvent {
+  id          String   @id
+  type        String
+  result      String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
+}
+
+// ─────────────────────────── RGPD ───────────────────────────
+
+enum DataRequestType {
+  ACCESS
+  RECTIFICATION
+  ERASURE
+  PORTABILITY
+  OBJECTION
+  RESTRICTION
+}
+
+enum DataRequestStatus {
+  UNVERIFIED
+  VERIFIED
+  COMPLETED
+  REJECTED
+}
+
+/// Solicitudes de ejercicio de derechos (art. 15-22 RGPD)
+model DataRequest {
+  id              String            @id @default(cuid())
+  type            DataRequestType
+  status          DataRequestStatus @default(UNVERIFIED)
+  email           String
+  emailHash       String
+  details         String?
+  verifyTokenHash String?           @unique
+  verifiedAt      DateTime?
+  dueAt           DateTime
+  resolvedAt      DateTime?
+  resolution      String?
+  createdAt       DateTime          @default(now())
+
   @@index([status])
+  @@index([emailHash])
 }

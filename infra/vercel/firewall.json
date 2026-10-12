@@ -1,0 +1,265 @@
+{
+  "firewallEnabled": true,
+  "managedRules": {
+    "bot_protection": { "active": true, "action": "challenge" },
+    "ai_bots": { "active": true, "action": "deny" }
+  },
+  "crs": {
+    "sqli": { "active": true, "action": "deny" },
+    "xss": { "active": true, "action": "deny" },
+    "rce": { "active": true, "action": "deny" },
+    "lfi": { "active": true, "action": "deny" },
+    "rfi": { "active": true, "action": "deny" },
+    "sd": { "active": true, "action": "deny" },
+    "ma": { "active": true, "action": "log" },
+    "php": { "active": true, "action": "deny" },
+    "gen": { "active": true, "action": "log" },
+    "sf": { "active": true, "action": "log" },
+    "java": { "active": true, "action": "deny" }
+  },
+  "rules": [
+    {
+      "name": "Bypass webhook de Stripe",
+      "description": "Deja pasar los POST firmados de Stripe (sin challenge ni rate limit). La firma se verifica en la app con STRIPE_WEBHOOK_SECRET.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "eq", "value": "/api/stripe/webhook" },
+            { "type": "method", "op": "eq", "value": "POST" },
+            { "type": "header", "key": "stripe-signature", "op": "ex" }
+          ]
+        }
+      ],
+      "action": { "mitigate": { "action": "bypass" } }
+    },
+    {
+      "name": "Bypass cron de Vercel",
+      "description": "Llamadas de Vercel Cron a /api/cron y /api/cron/jobs. La app exige Authorization: Bearer CRON_SECRET; esta regla solo evita challenges y rate limits.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/cron" },
+            { "type": "method", "op": "eq", "value": "GET" },
+            { "type": "user_agent", "op": "pre", "value": "vercel-cron/" },
+            { "type": "header", "key": "authorization", "op": "ex" }
+          ]
+        }
+      ],
+      "action": { "mitigate": { "action": "bypass" } }
+    },
+    {
+      "name": "Bloquear rutas sensibles y escaneos",
+      "description": "Ficheros ocultos, volcados, paneles de otros CMS y rutas típicas de escáneres. Bloqueo persistente de la IP durante 1 h.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            {
+              "type": "path",
+              "op": "re",
+              "value": "^/(\\.(env|git|svn|hg|aws|ssh|htaccess|htpasswd|DS_Store|vscode|idea)|wp-(admin|login|content|includes|json)|xmlrpc\\.php|phpmyadmin|pma|adminer|server-status|server-info|cgi-bin|vendor/phpunit|actuator|telescope|_profiler|debug)"
+            }
+          ]
+        },
+        {
+          "conditions": [
+            { "type": "path", "op": "re", "value": "(?i)\\.(php|asp|aspx|jsp|cgi|sql|bak|old|orig|swp|tar|tgz|gz|zip|7z|env|ini|log|pem|key)$" },
+            { "type": "path", "op": "pre", "value": "/_next/", "neg": true }
+          ]
+        }
+      ],
+      "action": { "mitigate": { "action": "deny", "actionDuration": "1h" } }
+    },
+    {
+      "name": "Métodos HTTP no usados",
+      "description": "La app solo usa GET, HEAD, POST, DELETE y OPTIONS.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "method", "op": "inc", "value": ["TRACE", "TRACK", "CONNECT", "PUT", "PATCH", "PROPFIND", "PROPPATCH", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"] }
+          ]
+        }
+      ],
+      "action": { "mitigate": { "action": "deny" } }
+    },
+    {
+      "name": "Métricas solo desde el recolector",
+      "description": "/api/metrics solo desde la IP del Prometheus (sustituir 203.0.113.10). Además la app exige Authorization: Bearer METRICS_TOKEN.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/metrics" },
+            { "type": "ip_address", "op": "inc", "value": ["203.0.113.10"], "neg": true }
+          ]
+        }
+      ],
+      "action": { "mitigate": { "action": "deny" } }
+    },
+    {
+      "name": "Rate limit login del panel (corto)",
+      "description": "POST a /admin/login: 5 intentos por minuto e IP. Responde 429.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/admin/login" },
+            { "type": "method", "op": "eq", "value": "POST" }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 60, "limit": 5, "keys": ["ip"], "action": "rate_limit" }
+        }
+      }
+    },
+    {
+      "name": "Rate limit login del panel (largo)",
+      "description": "POST a /admin/login: más de 20 intentos en 10 min bloquea la IP 1 h (fuerza bruta lenta).",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/admin/login" },
+            { "type": "method", "op": "eq", "value": "POST" }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 600, "limit": 20, "keys": ["ip"], "action": "deny" },
+          "actionDuration": "1h"
+        }
+      }
+    },
+    {
+      "name": "Rate limit creación de pedidos y checkout",
+      "description": "POST a /api/orders y /api/checkout: 10 por minuto e IP.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/orders" },
+            { "type": "method", "op": "eq", "value": "POST" }
+          ]
+        },
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/checkout" },
+            { "type": "method", "op": "eq", "value": "POST" }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 60, "limit": 10, "keys": ["ip"], "action": "rate_limit" }
+        }
+      }
+    },
+    {
+      "name": "Rate limit subidas de fotos",
+      "description": "POST a /api/uploads: 10 por minuto e IP (cada subida procesa imágenes con sharp).",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/uploads" },
+            { "type": "method", "op": "eq", "value": "POST" }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 60, "limit": 10, "keys": ["ip"], "action": "rate_limit" }
+        }
+      }
+    },
+    {
+      "name": "Rate limit formularios públicos",
+      "description": "POST a presupuestos, opiniones, tarjetas regalo y carrito: 20 por minuto e IP.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "re", "value": "^/api/(quotes|reviews|giftcards|cart)(/|$)" },
+            { "type": "method", "op": "inc", "value": ["POST", "DELETE"] }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 60, "limit": 20, "keys": ["ip"], "action": "rate_limit" }
+        }
+      }
+    },
+    {
+      "name": "Rate limit general de la API",
+      "description": "Cualquier /api/*: 300 peticiones por minuto e IP.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/" }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 60, "limit": 300, "keys": ["ip"], "action": "rate_limit" }
+        }
+      }
+    },
+    {
+      "name": "Challenge en picos de navegación",
+      "description": "Páginas (no API ni estáticos): más de 300 peticiones por minuto desde una IP muestra un challenge en lugar de bloquear.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/api/", "neg": true },
+            { "type": "path", "op": "pre", "value": "/_next/static/", "neg": true },
+            { "type": "path", "op": "pre", "value": "/_next/image", "neg": true }
+          ]
+        }
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": { "algo": "fixed_window", "window": 60, "limit": 300, "keys": ["ip"], "action": "challenge" }
+        }
+      }
+    },
+    {
+      "name": "Challenge al panel desde fuera de España",
+      "description": "Challenge (no bloqueo) a /admin fuera de ES. Desactivar si el equipo trabaja desde otros países.",
+      "active": true,
+      "conditionGroup": [
+        {
+          "conditions": [
+            { "type": "path", "op": "pre", "value": "/admin" },
+            { "type": "geo_country", "op": "eq", "value": "ES", "neg": true }
+          ]
+        }
+      ],
+      "action": { "mitigate": { "action": "challenge" } }
+    }
+  ],
+  "ips": [
+    {
+      "hostname": "reposteria.example.com",
+      "ip": "198.51.100.23",
+      "action": "deny",
+      "notes": "Ejemplo de bloqueo manual de una IP abusiva (dirección de documentación, sustituir o eliminar)"
+    }
+  ]
+}

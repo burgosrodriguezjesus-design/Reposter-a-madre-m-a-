@@ -6,6 +6,8 @@ import { OrderRow } from "@/components/admin/OrderRow";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { localNow } from "@/lib/availability";
+import { matchesText, parsePiiQuery, SCAN_LIMIT } from "@/lib/pii-search";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Pedidos" };
 
@@ -13,10 +15,12 @@ const VIEWS = ["pendientes", "hoy", "proximos", "listos", "todos"] as const;
 type View = (typeof VIEWS)[number];
 
 export default async function OrdersPage({ searchParams }: PageProps<"/admin/pedidos">) {
+  await requirePermission("orders.view");
   const params = await searchParams;
   const view: View = VIEWS.includes(params.vista as View) ? (params.vista as View) : "pendientes";
   const q = typeof params.q === "string" ? params.q.trim().slice(0, 80) : "";
   const day = typeof params.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.fecha) ? params.fecha : "";
+  const search = parsePiiQuery(q);
   const settings = await getSettings();
   const today = localNow(settings.business.timezone).date;
 
@@ -30,24 +34,20 @@ export default async function OrdersPage({ searchParams }: PageProps<"/admin/ped
   const where: Prisma.OrderWhereInput = {
     ...base[view],
     ...(day ? { scheduledDate: day, status: { notIn: ["CANCELLED", "REJECTED", "PENDING_PAYMENT"] } } : {}),
-    ...(q
-      ? {
-          OR: [
-            { number: { contains: q.toUpperCase() } },
-            { customerName: { contains: q, mode: "insensitive" } },
-            { customerEmail: { contains: q.toLowerCase() } },
-            { customerPhone: { contains: q } },
-          ],
-        }
-      : {}),
+    ...(search.kind === "email" ? { customerEmailHash: search.hash } : {}),
+    ...(search.kind === "phone" ? { customerPhoneHash: search.hash } : {}),
   };
   const orderBy: Prisma.OrderOrderByWithRelationInput[] =
-    view === "todos" ? [{ createdAt: "desc" }] : [{ scheduledDate: "asc" }, { scheduledTime: "asc" }];
+    view === "todos" || search.kind === "text" ? [{ createdAt: "desc" }] : [{ scheduledDate: "asc" }, { scheduledTime: "asc" }];
 
-  const [orders, counts] = await Promise.all([
-    db.order.findMany({ where, orderBy, take: 100, include: { items: { select: { name: true, quantity: true } } } }),
+  // Nombre o número: los nombres están cifrados, así que se filtran en memoria los más recientes.
+  const take = search.kind === "text" ? SCAN_LIMIT : 100;
+  const [found, counts] = await Promise.all([
+    db.order.findMany({ where, orderBy, take, include: { items: { select: { name: true, quantity: true } } } }),
     Promise.all(VIEWS.map((v) => (v === "todos" ? Promise.resolve(0) : db.order.count({ where: base[v] })))),
   ]);
+  const orders =
+    search.kind === "text" ? found.filter((o) => matchesText(search.needle, o.number, o.customerName)).slice(0, 100) : found;
   const labels: Record<View, string> = { pendientes: "Por aceptar", hoy: "Hoy", proximos: "Próximos", listos: "Listos", todos: "Todos" };
 
   return (

@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ALLERGEN_KEYS, OCCASIONS } from "@/lib/allergens";
 import { deleteImage, saveImage, UploadError } from "@/lib/storage";
@@ -59,12 +59,19 @@ const productSchema = z.object({
 export type ProductPayload = z.input<typeof productSchema>;
 
 export async function saveProduct(payload: ProductPayload): Promise<ActionResult & { id?: string }> {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const parsed = productSchema.safeParse(payload);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Revisa los datos" };
   const { id, variants, optionGroups, seoTitle, seoDescription, ...data } = parsed.data;
   const common = { ...data, optionGroups, seoTitle: seoTitle || null, seoDescription: seoDescription || null, isDemo: false };
 
+  // Precios anteriores para el registro de cambios
+  const before = id
+    ? await db.product.findUnique({
+        where: { id },
+        select: { priceCents: true, active: true, stock: true, variants: { select: { id: true, name: true, priceCents: true } } },
+      })
+    : null;
   try {
     let productId = id;
     await db.$transaction(async (tx) => {
@@ -82,6 +89,17 @@ export async function saveProduct(payload: ProductPayload): Promise<ActionResult
         else await tx.productVariant.create({ data: { ...row, productId: productId! } });
       }
     });
+    const after = { priceCents: data.priceCents, active: data.active, variants: variants.map((v) => ({ name: v.name, priceCents: v.priceCents })) };
+    const priceChanged =
+      !!before &&
+      (before.priceCents !== data.priceCents || JSON.stringify(before.variants.map((v) => [v.name, v.priceCents])) !== JSON.stringify(after.variants.map((v) => [v.name, v.priceCents])));
+    await auditAdmin(admin, {
+      action: !id ? "product.create" : priceChanged ? "product.price_change" : "product.update",
+      entity: "Product",
+      entityId: productId,
+      severity: priceChanged ? "warning" : "info",
+      details: { name: data.name, before: before ? { priceCents: before.priceCents, active: before.active, variants: before.variants.map((v) => ({ name: v.name, priceCents: v.priceCents })) } : null, after },
+    });
     revalidateSite();
     return { ok: true, message: "Producto guardado", id: productId };
   } catch (error) {
@@ -90,7 +108,7 @@ export async function saveProduct(payload: ProductPayload): Promise<ActionResult
 }
 
 export async function uploadProductImages(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const productId = String(formData.get("productId") ?? "");
   const product = await db.product.findUnique({ where: { id: productId }, include: { images: true } });
   if (!product) return { ok: false, error: "Producto no encontrado" };
@@ -105,6 +123,7 @@ export async function uploadProductImages(_prev: ActionResult, formData: FormDat
       });
     }
     await db.product.update({ where: { id: productId }, data: { isDemo: false } });
+    await auditAdmin(admin, { action: "product.images_upload", entity: "Product", entityId: productId, details: { count: Math.min(files.length, 8) } });
     revalidateSite();
     return { ok: true, message: `${Math.min(files.length, 8)} foto(s) subida(s). Revisa el texto alternativo.` };
   } catch (error) {
@@ -114,7 +133,7 @@ export async function uploadProductImages(_prev: ActionResult, formData: FormDat
 }
 
 export async function updateProductImage(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const id = String(formData.get("imageId") ?? "");
   const intent = String(formData.get("intent") ?? "save");
   const image = await db.productImage.findUnique({ where: { id } });
@@ -132,13 +151,15 @@ export async function updateProductImage(_prev: ActionResult, formData: FormData
     if (alt.length < 3) return { ok: false, error: "Describe la foto (texto alternativo para Google y accesibilidad)" };
     await db.productImage.update({ where: { id }, data: { alt } });
   }
+  if (intent === "delete") await auditAdmin(admin, { action: "product.image_delete", entity: "Product", entityId: image.productId });
   revalidateSite();
   return { ok: true, message: intent === "delete" ? "Foto eliminada" : "Guardado" };
 }
 
 export async function deleteProduct(formData: FormData) {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const id = String(formData.get("id") ?? "");
+  await auditAdmin(admin, { action: "product.delete", entity: "Product", entityId: id, severity: "warning" });
   const used = await db.orderItem.count({ where: { productId: id } });
   if (used > 0) {
     // Tiene pedidos: se archiva para conservar el historial
@@ -153,9 +174,12 @@ export async function deleteProduct(formData: FormData) {
 }
 
 export async function toggleProductActive(formData: FormData) {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const id = String(formData.get("id") ?? "");
   const product = await db.product.findUnique({ where: { id } });
-  if (product) await db.product.update({ where: { id }, data: { active: !product.active, archived: false } });
+  if (product) {
+    await db.product.update({ where: { id }, data: { active: !product.active, archived: false } });
+    await auditAdmin(admin, { action: "product.toggle_active", entity: "Product", entityId: id, details: { active: !product.active } });
+  }
   revalidateSite();
 }

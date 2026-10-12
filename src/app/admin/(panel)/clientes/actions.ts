@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { str } from "@/lib/admin";
 
@@ -10,14 +10,15 @@ import { str } from "@/lib/admin";
  * Los pedidos se conservan (obligación legal de facturación) pero se desvinculan.
  */
 export async function deleteCustomerData(formData: FormData) {
-  await requireAdmin();
+  const admin = await requirePermission("customers.delete");
   const id = str(formData, "id");
   const customer = await db.customer.findUnique({ where: { id } });
   if (!customer) return;
   await db.$transaction([
     db.order.updateMany({ where: { customerId: id }, data: { customerId: null, marketingConsent: false } }),
-    db.abandonedCart.deleteMany({ where: { email: customer.email } }),
+    db.abandonedCart.deleteMany({ where: { emailHash: customer.emailHash } }),
     db.customer.delete({ where: { id } }),
   ]);
+  await auditAdmin(admin, { action: "privacy.customer_erased", entity: "Customer", entityId: id, severity: "warning" });
   revalidatePath("/admin/clientes");
 }

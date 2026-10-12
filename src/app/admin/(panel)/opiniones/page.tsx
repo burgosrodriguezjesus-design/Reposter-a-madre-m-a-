@@ -6,6 +6,7 @@ import { DemoBadge, Stars } from "@/components/site/ui";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { moderateReview } from "./actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Opiniones" };
 
@@ -16,6 +17,7 @@ const LABEL: Record<ReviewStatus, { label: string; tone: string }> = {
 };
 
 export default async function ReviewsAdminPage({ searchParams }: PageProps<"/admin/opiniones">) {
+  await requirePermission("reviews.manage");
   const { estado } = await searchParams;
   const status: ReviewStatus = estado === "APPROVED" || estado === "HIDDEN" ? estado : "PENDING";
   const [reviews, pending] = await Promise.all([

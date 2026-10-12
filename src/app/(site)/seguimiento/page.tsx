@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { accessCookieName } from "@/lib/access-token";
 import { PackageSearch } from "lucide-react";
 import { db } from "@/lib/db";
+import { emailHash, safeEqual } from "@/lib/crypto";
 import { limitByIp } from "@/lib/rate-limit";
 
 export const metadata: Metadata = {
@@ -15,9 +18,20 @@ async function lookup(formData: FormData) {
   const number = String(formData.get("number") ?? "").trim().toUpperCase();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!(await limitByIp("tracking", 15, 10 * 60_000))) redirect("/seguimiento?error=limite");
-  const order = number && email ? await db.order.findUnique({ where: { number } }) : null;
-  if (!order || order.customerEmail !== email) redirect("/seguimiento?error=1");
-  redirect(`/pedido/${order.number}?t=${order.accessToken}`);
+  const order =
+    number && email ? await db.order.findUnique({ where: { number }, select: { number: true, accessToken: true, customerEmailHash: true } }) : null;
+  // Misma respuesta si el pedido no existe o el email no coincide (no revela qué pedidos existen).
+  if (!order || !safeEqual(order.customerEmailHash, emailHash(email))) redirect("/seguimiento?error=1");
+  // El token se guarda en una cookie privada de esa página en lugar de ir en la URL
+  const jar = await cookies();
+  jar.set(accessCookieName("pedido", order.number), order.accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: `/pedido/${order.number}`,
+    maxAge: 90 * 86_400,
+  });
+  redirect(`/pedido/${order.number}`);
 }
 
 export default async function TrackingPage({ searchParams }: PageProps<"/seguimiento">) {

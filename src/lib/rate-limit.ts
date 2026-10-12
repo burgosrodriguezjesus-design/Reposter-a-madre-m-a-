@@ -1,37 +1,25 @@
 import "server-only";
 import { headers } from "next/headers";
+import { ipBucket, ipFromHeaders } from "@/lib/client-ip";
+import { keyedHash } from "@/lib/crypto";
+import { penalize, rateLimit } from "@/lib/limiter";
 
-/**
- * Limitador de peticiones en memoria (ventana deslizante).
- * Suficiente para frenar abusos en formularios públicos. El inicio de sesión del
- * panel usa además un registro en base de datos (ver lib/auth.ts).
- */
-const buckets = new Map<string, number[]>();
+export { penalize, penaltyOf, rateLimit } from "@/lib/limiter";
 
-export function rateLimit(key: string, limit: number, windowMs: number): boolean {
-  const now = Date.now();
-  const hits = (buckets.get(key) ?? []).filter((t) => now - t < windowMs);
-  if (hits.length >= limit) {
-    buckets.set(key, hits);
-    return false;
-  }
-  hits.push(now);
-  buckets.set(key, hits);
-  if (buckets.size > 5000) {
-    for (const [k, v] of buckets) if (v.every((t) => now - t > windowMs)) buckets.delete(k);
-  }
-  return true;
+/** IP del cliente según el proxy de confianza (TRUST_PROXY). */
+export async function clientIp(): Promise<string> {
+  return ipFromHeaders(await headers());
 }
 
-export async function clientIp(): Promise<string> {
-  const h = await headers();
-  return (
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    h.get("x-real-ip") ||
-    "unknown"
-  );
+/** Huella HMAC de la IP (agrupando IPv6 por /64). */
+export async function clientIpHash(): Promise<string> {
+  return keyedHash("ip", ipBucket(await clientIp()));
 }
 
 export async function limitByIp(scope: string, limit: number, windowMs: number): Promise<boolean> {
-  return rateLimit(`${scope}:${await clientIp()}`, limit, windowMs);
+  return (await rateLimit(scope, await clientIpHash(), limit, windowMs)).ok;
+}
+
+export async function penalizeClient(points = 1) {
+  await penalize(await clientIpHash(), points);
 }

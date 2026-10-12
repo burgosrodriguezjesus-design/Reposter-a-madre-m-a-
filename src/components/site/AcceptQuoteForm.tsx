@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { CreditCard, LoaderCircle, Store } from "lucide-react";
 import clsx from "clsx";
@@ -20,7 +19,6 @@ export function AcceptQuoteForm({
   payments: { card: boolean; inStore: boolean };
   defaultCity: string;
 }) {
-  const router = useRouter();
   const [slot, setSlot] = useState({ date: "", time: "" });
   const [paymentMethod, setPaymentMethod] = useState<"CARD" | "IN_STORE">(payments.card ? "CARD" : "IN_STORE");
   const [address, setAddress] = useState({ street: "", city: defaultCity, details: "" });
@@ -52,8 +50,8 @@ export function AcceptQuoteForm({
       });
       const data = (await res.json()) as { redirectUrl?: string; error?: string };
       if (data.redirectUrl) {
-        if (/^https?:\/\//.test(data.redirectUrl)) window.location.href = data.redirectUrl;
-        else router.push(data.redirectUrl);
+        // Navegación completa: el enlace con el token se canjea por una cookie privada (ver proxy)
+        window.location.assign(data.redirectUrl);
         return;
       }
       setError(data.error || "No se pudo confirmar");

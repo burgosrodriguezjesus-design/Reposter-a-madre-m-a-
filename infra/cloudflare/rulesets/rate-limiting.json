@@ -1,0 +1,106 @@
+{
+  "description": "Rate limiting en el borde (fase http_ratelimit), ordenadas por prioridad. apply.sh --plan adapta el conjunto: free = solo login con periodo de 10 s; pro = login + pedidos; business = todas. Ajusta period/mitigation_timeout a los valores que admita tu plan.",
+  "rules": [
+    {
+      "ref": "rp_rl_admin_login",
+      "description": "Login del panel: 5 POST por minuto e IP, bloqueo 10 min",
+      "expression": "(http.request.uri.path eq \"/admin/login\" and http.request.method eq \"POST\")",
+      "action": "block",
+      "ratelimit": {
+        "characteristics": [
+          "cf.colo.id",
+          "ip.src"
+        ],
+        "period": 60,
+        "requests_per_period": 5,
+        "mitigation_timeout": 600
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_rl_orders_checkout",
+      "description": "Pedidos y checkout: 10 POST por minuto e IP",
+      "expression": "((starts_with(http.request.uri.path, \"/api/orders\") or starts_with(http.request.uri.path, \"/api/checkout\")) and http.request.method eq \"POST\")",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"error\":\"Demasiadas peticiones. Inténtalo de nuevo en un minuto.\"}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": [
+          "cf.colo.id",
+          "ip.src"
+        ],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 60
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_rl_uploads",
+      "description": "Subidas de fotos: 10 POST por minuto e IP",
+      "expression": "(starts_with(http.request.uri.path, \"/api/uploads\") and http.request.method eq \"POST\")",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"error\":\"Demasiadas subidas. Inténtalo de nuevo en un minuto.\"}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": [
+          "cf.colo.id",
+          "ip.src"
+        ],
+        "period": 60,
+        "requests_per_period": 10,
+        "mitigation_timeout": 60
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_rl_public_forms",
+      "description": "Formularios públicos (presupuestos, opiniones, tarjetas regalo, carrito): 20 por minuto e IP",
+      "expression": "((starts_with(http.request.uri.path, \"/api/quotes\") or starts_with(http.request.uri.path, \"/api/reviews\") or starts_with(http.request.uri.path, \"/api/giftcards\") or starts_with(http.request.uri.path, \"/api/cart\")) and http.request.method in {\"POST\" \"DELETE\"})",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"error\":\"Demasiadas peticiones. Inténtalo de nuevo en un minuto.\"}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": [
+          "cf.colo.id",
+          "ip.src"
+        ],
+        "period": 60,
+        "requests_per_period": 20,
+        "mitigation_timeout": 60
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_rl_global_peaks",
+      "description": "Picos generales (todo salvo estáticos): más de 300 peticiones por minuto e IP -> Managed Challenge",
+      "expression": "(not starts_with(http.request.uri.path, \"/_next/static/\"))",
+      "action": "managed_challenge",
+      "ratelimit": {
+        "characteristics": [
+          "cf.colo.id",
+          "ip.src"
+        ],
+        "period": 60,
+        "requests_per_period": 300,
+        "mitigation_timeout": 0
+      },
+      "enabled": true
+    }
+  ]
+}

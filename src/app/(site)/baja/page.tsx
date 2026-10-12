@@ -16,7 +16,7 @@ async function unsubscribe(formData: FormData) {
       await db.$transaction([
         db.customer.update({ where: { id: customer.id }, data: { marketingConsent: false, marketingConsentAt: null } }),
         db.celebrationReminder.updateMany({ where: { customerId: customer.id }, data: { active: false } }),
-        db.abandonedCart.deleteMany({ where: { email: customer.email } }),
+        db.abandonedCart.deleteMany({ where: { emailHash: customer.emailHash } }),
       ]);
     }
   }

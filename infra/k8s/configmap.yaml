@@ -1,0 +1,41 @@
+# Configuración NO secreta de la app. Los secretos llegan por ExternalSecret
+# (externalsecret.yaml), nunca en este fichero.
+# PLANTILLA NO PROBADA EN UN CLÚSTER: sustituye reposteria.example.com y los valores de ejemplo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reposteria-config
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+data:
+  APP_ENV: "production"
+  NODE_ENV: "production"
+  # Ojo: las variables NEXT_PUBLIC_* se incrustan en el bundle al compilar.
+  # Este valor debe coincidir con el usado en la build de la imagen.
+  NEXT_PUBLIC_SITE_URL: "https://reposteria.example.com"
+  # ingress-nginx pone X-Real-IP con la IP del cliente (ver README: preservar la IP
+  # de origen en el balanceador con externalTrafficPolicy: Local o PROXY protocol).
+  TRUST_PROXY: "nginx"
+  # Con varias réplicas el almacenamiento local no sirve: usar Supabase Storage.
+  STORAGE_DRIVER: "supabase"
+  SUPABASE_URL: "https://PROYECTO.supabase.co"
+  SUPABASE_STORAGE_BUCKET: "productos"
+  SUPABASE_PRIVATE_BUCKET: "referencias-clientes"
+  # Solo se usa con STORAGE_DRIVER=local; apunta a un emptyDir escribible.
+  UPLOAD_DIR: "/tmp/uploads"
+  SMTP_HOST: "smtp.example.com"
+  SMTP_PORT: "587"
+  EMAIL_FROM: "Repostería <pedidos@reposteria.example.com>"
+  ALERT_EMAIL: "alertas@reposteria.example.com"
+  ADMIN_SESSION_IDLE_MINUTES: "60"
+  ADMIN_SESSION_MAX_HOURS: "12"
+  WEBAUTHN_RP_ID: "reposteria.example.com"
+  # Servidor standalone de Next.js
+  PORT: "3000"
+  # Kubernetes rellena HOSTNAME con el nombre del pod; el servidor standalone
+  # escucharía solo en esa interfaz. Se fuerza 0.0.0.0.
+  HOSTNAME: "0.0.0.0"
+  NEXT_TELEMETRY_DISABLED: "1"
+  # Mantiene el heap de V8 por debajo del límite de memoria del contenedor (768Mi).
+  NODE_OPTIONS: "--max-old-space-size=512"

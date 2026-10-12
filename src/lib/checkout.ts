@@ -1,7 +1,8 @@
 import "server-only";
 import { Prisma, type Coupon, type DeliveryZone, type GiftCard, type QuoteRequest } from "@prisma/client";
 import type { z } from "zod";
-import { db } from "@/lib/db";
+import { db, type Tx } from "@/lib/db";
+import { emailHash, phoneHash } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import type { AllSettings } from "@/lib/settings-types";
 import {
@@ -16,13 +17,17 @@ import {
 import { isOwnUploadUrl } from "@/lib/storage";
 import type { CheckoutPreview } from "@/lib/cart-types";
 import type { checkoutBaseSchema, CreateOrderInput } from "@/lib/validation";
-import { availabilityContext } from "@/lib/schedule";
+import { availabilityContext, capacityCounts } from "@/lib/schedule";
 import { checkSlot } from "@/lib/availability";
 import { orderNumber, secureToken } from "@/lib/ids";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { siteUrl } from "@/lib/site-url";
 import { formatPrice } from "@/lib/format";
-import { onOrderConfirmed, releaseOrderHolds } from "@/lib/order-events";
+import { enqueueOrderConfirmed, releaseOrderHolds } from "@/lib/order-events";
+import { kickJobs } from "@/lib/job-handlers";
+import { log } from "@/lib/logger";
+import { inc } from "@/lib/metrics";
+import type { AvailabilityContext } from "@/lib/availability";
 
 type CheckoutBase = z.infer<typeof checkoutBaseSchema>;
 
@@ -94,6 +99,16 @@ export async function priceCart(input: CheckoutBase, settings: AllSettings): Pro
   const lines: PricedLine[] = [];
   let leadHours = settings.ordering.minLeadHours;
   let requiresReview = false;
+
+  // Unidades pedidas por producto (para comprobar el stock disponible)
+  const wanted = new Map<string, number>();
+  for (const item of input.items) if (item.kind === "product" && item.productId) wanted.set(item.productId, (wanted.get(item.productId) ?? 0) + item.quantity);
+  for (const [id, qty] of wanted) {
+    const product = products.find((p) => p.id === id);
+    if (product && product.stock !== null && product.stock < qty) {
+      errors.push(product.stock <= 0 ? `${product.name} se ha agotado` : `Solo quedan ${product.stock} unidades de ${product.name}`);
+    }
+  }
 
   for (const item of input.items) {
     if (item.referencePhotoUrl && !isOwnUploadUrl(item.referencePhotoUrl)) {
@@ -332,12 +347,46 @@ export function paymentOptions(settings: AllSettings) {
 }
 
 export class CheckoutError extends Error {}
+/** La misma clave de idempotencia se ha usado con un pedido distinto. */
+export class IdempotencyConflictError extends Error {}
 
-/** Crea el pedido. Devuelve la URL a la que redirigir (Stripe o la confirmación). */
-export async function createOrder(
-  input: CreateOrderInput,
-  quote?: QuoteRequest,
-): Promise<{ redirectUrl: string; number: string }> {
+type CreateOptions = { quote?: QuoteRequest; idempotencyKey?: string | null; requestHash?: string | null };
+type CreateResult = { redirectUrl: string; number: string; replayed?: boolean };
+
+/** Respuesta para un reintento con la misma clave de idempotencia (doble clic, red inestable...). */
+async function replayOrder(idempotencyKey: string, requestHash: string | null | undefined): Promise<CreateResult | null> {
+  const existing = await db.order.findUnique({
+    where: { idempotencyKey },
+    select: { number: true, accessToken: true, status: true, paymentMethod: true, checkoutUrl: true, requestHash: true, createdAt: true },
+  });
+  if (!existing) return null;
+  if (requestHash && existing.requestHash && existing.requestHash !== requestHash) {
+    throw new IdempotencyConflictError("Esta solicitud ya se usó para otro pedido. Recarga la página.");
+  }
+  if (existing.paymentMethod === "CARD" && existing.status === "PENDING_PAYMENT") {
+    if (existing.checkoutUrl) return { redirectUrl: existing.checkoutUrl, number: existing.number, replayed: true };
+    throw new CheckoutError("Tu pedido se está procesando. Espera unos segundos y vuelve a intentarlo.");
+  }
+  if (existing.status === "CANCELLED" && existing.paymentMethod === "CARD") {
+    throw new CheckoutError("No pudimos iniciar el pago de este pedido. Vuelve a intentarlo.");
+  }
+  return { redirectUrl: `/pedido/${existing.number}?t=${existing.accessToken}&nuevo=1`, number: existing.number, replayed: true };
+}
+
+/**
+ * Crea el pedido. Devuelve la URL a la que redirigir (Stripe o la confirmación).
+ * Garantías: precios calculados en el servidor, idempotencia por clave, capacidad y stock
+ * comprobados dentro de la transacción con bloqueo (no se vende más de lo que hay) y avisos
+ * encolados en la misma transacción.
+ */
+export async function createOrder(input: CreateOrderInput, options: CreateOptions | QuoteRequest = {}): Promise<CreateResult> {
+  const opts: CreateOptions = "accessToken" in options ? { quote: options as QuoteRequest } : (options as CreateOptions);
+  const { quote, idempotencyKey, requestHash } = opts;
+  if (idempotencyKey) {
+    const replay = await replayOrder(idempotencyKey, requestHash);
+    if (replay) return replay;
+  }
+
   const settings = await getSettings();
   if (!settings.ordering.onlineOrdersEnabled && !quote) throw new CheckoutError(settings.ordering.closedMessage);
 
@@ -345,6 +394,11 @@ export async function createOrder(
   if (cart.errors.length) throw new CheckoutError(cart.errors[0]);
   if (input.couponCode && cart.couponError) throw new CheckoutError(cart.couponError);
   if (input.giftCardCode && cart.giftCardError) throw new CheckoutError(cart.giftCardError);
+  // Comprobación de coherencia de importes (defensa en profundidad frente a manipulación)
+  const expected = Math.max(0, cart.subtotalCents + cart.deliveryFeeCents - cart.discountCents - cart.giftCardCents);
+  if (cart.totalCents !== expected || cart.lines.some((l) => l.lineTotalCents !== l.unitPriceCents * l.quantity || l.unitPriceCents < 0)) {
+    throw new CheckoutError("No se ha podido calcular el importe del pedido. Vuelve a intentarlo.");
+  }
 
   if (input.fulfillment === "DELIVERY" && (!input.address?.street || input.address.street.length < 5)) {
     throw new CheckoutError("Introduce la dirección de entrega");
@@ -363,149 +417,193 @@ export async function createOrder(
     if (!payments.inStore) throw new CheckoutError("El pago en tienda no está disponible");
     if (input.fulfillment === "DELIVERY") throw new CheckoutError("Los pedidos a domicilio se pagan online");
   }
+  if (paymentMethod === "CARD" && cart.totalCents < 50) throw new CheckoutError("El importe mínimo para pagar con tarjeta es 0,50 €");
 
   // Un presupuesto aceptado ya está confirmado por el obrador
   const confirmedStatus =
     quote || (settings.ordering.autoAcceptStandardOrders && !cart.requiresReview) ? ("ACCEPTED" as const) : ("PENDING" as const);
   const status = paymentMethod === "CARD" ? ("PENDING_PAYMENT" as const) : confirmedStatus;
 
-  const order = await createOrderRecord(input, cart, { status, paymentMethod, quoteRequestId: quote?.id });
+  let order: Awaited<ReturnType<typeof createOrderRecord>>;
+  try {
+    order = await createOrderRecord(input, cart, ctx, { status, paymentMethod, quoteRequestId: quote?.id, idempotencyKey, requestHash });
+  } catch (error) {
+    // Dos peticiones simultáneas con la misma clave: la segunda devuelve el resultado de la primera
+    if (idempotencyKey && error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const replay = await replayOrder(idempotencyKey, requestHash);
+      if (replay) return replay;
+    }
+    if (!(error instanceof CheckoutError)) inc("orders_failed_total", { reason: "error" });
+    throw error;
+  }
+  inc("orders_created_total", { payment: paymentMethod });
 
   if (paymentMethod === "CARD") {
     const stripe = getStripe()!;
     try {
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment",
-        locale: "es",
-        customer_email: order.customerEmail,
-        client_reference_id: order.id,
-        metadata: { type: "order", orderId: order.id, orderNumber: order.number },
-        payment_intent_data: { metadata: { orderId: order.id, orderNumber: order.number } },
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: "eur",
-              unit_amount: order.totalCents,
-              product_data: {
-                name: `Pedido ${order.number} · ${settings.business.name}`,
-                description: cart.lines
-                  .map((l) => `${l.quantity}× ${l.name}`)
-                  .join(", ")
-                  .slice(0, 450),
+      const session = await stripe.checkout.sessions.create(
+        {
+          mode: "payment",
+          locale: "es",
+          customer_email: order.customerEmail,
+          client_reference_id: order.id,
+          metadata: { type: "order", orderId: order.id, orderNumber: order.number },
+          payment_intent_data: { metadata: { orderId: order.id, orderNumber: order.number } },
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: "eur",
+                // Importe calculado SOLO en el servidor
+                unit_amount: order.totalCents,
+                product_data: {
+                  name: `Pedido ${order.number} · ${settings.business.name}`,
+                  description: cart.lines
+                    .map((l) => `${l.quantity}× ${l.name}`)
+                    .join(", ")
+                    .slice(0, 450),
+                },
               },
             },
-          },
-        ],
-        expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
-        success_url: siteUrl(`/pedido/${order.number}?t=${order.accessToken}&pago=ok`),
-        cancel_url: quote
-          ? siteUrl(`/presupuesto/${quote.id}?t=${quote.accessToken}&cancelado=1`)
-          : siteUrl(`/finalizar-pedido?cancelado=${order.number}`),
-      });
-      await db.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id } });
+          ],
+          expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
+          success_url: siteUrl(`/pedido/${order.number}?t=${order.accessToken}&pago=ok`),
+          cancel_url: quote
+            ? siteUrl(`/presupuesto/${quote.id}?t=${quote.accessToken}&cancelado=1`)
+            : siteUrl(`/finalizar-pedido?cancelado=${order.number}`),
+        },
+        // Un reintento nunca crea dos sesiones de pago para el mismo pedido
+        { idempotencyKey: `checkout-session-${order.id}` },
+      );
+      await db.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id, checkoutUrl: session.url } });
       return { redirectUrl: session.url!, number: order.number };
     } catch (error) {
-      console.error("[stripe] No se pudo crear la sesión de pago", error);
+      log.error("stripe.session_failed", { orderId: order.id, error });
+      inc("orders_failed_total", { reason: "stripe" });
       await releaseOrderHolds(order.id, "CANCELLED", "No se pudo iniciar el pago");
       throw new CheckoutError("No hemos podido iniciar el pago. Inténtalo de nuevo en unos minutos");
     }
   }
 
-  await onOrderConfirmed(order.id);
+  kickJobs();
   return { redirectUrl: `/pedido/${order.number}?t=${order.accessToken}&nuevo=1`, number: order.number };
+}
+
+/** Reserva atómica de unidades: falla si otro cliente se ha llevado las últimas. */
+async function reserveStock(tx: Tx, lines: PricedLine[]) {
+  const wanted = new Map<string, number>();
+  for (const l of lines) if (l.productId) wanted.set(l.productId, (wanted.get(l.productId) ?? 0) + l.quantity);
+  for (const [productId, qty] of wanted) {
+    const product = await tx.product.findUnique({ where: { id: productId }, select: { stock: true, name: true } });
+    if (!product || product.stock === null) continue;
+    const { count } = await tx.product.updateMany({ where: { id: productId, stock: { gte: qty } }, data: { stock: { decrement: qty } } });
+    if (count === 0) throw new CheckoutError(`Lo sentimos: ${product.name} se ha agotado mientras completabas el pedido`);
+  }
 }
 
 async function createOrderRecord(
   input: CreateOrderInput,
   cart: PricedCart,
+  ctx: AvailabilityContext,
   opts: {
     status: "PENDING_PAYMENT" | "PENDING" | "ACCEPTED";
     paymentMethod: "CARD" | "IN_STORE" | "GIFT_CARD";
     quoteRequestId?: string;
+    idempotencyKey?: string | null;
+    requestHash?: string | null;
   },
 ) {
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      return await db.$transaction(async (tx) => {
-        if (cart.giftCard && cart.giftCardCents > 0) {
-          const updated = await tx.giftCard.updateMany({
-            where: { id: cart.giftCard.id, status: "ACTIVE", balanceCents: { gte: cart.giftCardCents } },
-            data: { balanceCents: { decrement: cart.giftCardCents } },
-          });
-          if (updated.count === 0) throw new CheckoutError("El saldo de la tarjeta regalo ha cambiado. Vuelve a aplicarla");
-          await tx.giftCard.updateMany({
-            where: { id: cart.giftCard.id, balanceCents: 0 },
-            data: { status: "DEPLETED" },
-          });
-        }
-        if (cart.coupon) {
-          const updated = await tx.coupon.updateMany({
-            where: {
-              id: cart.coupon.id,
-              ...(cart.coupon.maxRedemptions != null ? { redemptions: { lt: cart.coupon.maxRedemptions } } : {}),
-            },
-            data: { redemptions: { increment: 1 } },
-          });
-          if (updated.count === 0) throw new CheckoutError("Este código de descuento ya se ha agotado");
-        }
+      return await db.$transaction(
+        async (tx) => {
+          // Serializa los pedidos del mismo día y vuelve a contar la capacidad con el bloqueo puesto:
+          // dos clientes no pueden llevarse a la vez el último hueco.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`slot:${input.date}`}))`;
+          const counts = await capacityCounts(input.date, tx, true);
+          const slot = checkSlot(input.date, input.time, { ...ctx, counts: { perDay: { ...ctx.counts.perDay, ...counts.perDay, [input.date]: counts.perDay[input.date] ?? 0 }, perSlot: { ...ctx.counts.perSlot, ...counts.perSlot } } });
+          if (!slot.ok) throw new CheckoutError(slot.error);
 
-        const paid = opts.paymentMethod === "GIFT_CARD";
-        return tx.order.create({
-          data: {
-            number: orderNumber(),
-            accessToken: secureToken(),
-            status: opts.status,
-            paymentMethod: opts.paymentMethod,
-            paymentStatus: paid ? "PAID" : "UNPAID",
-            fulfillment: input.fulfillment,
-            scheduledDate: input.date,
-            scheduledTime: input.time,
-            customerName: input.customer.name,
-            customerEmail: input.customer.email,
-            customerPhone: input.customer.phone,
-            address:
-              input.fulfillment === "DELIVERY"
-                ? [input.address?.street, input.address?.details].filter(Boolean).join(" · ")
-                : null,
-            postalCode: input.fulfillment === "DELIVERY" ? input.postalCode : null,
-            city: input.fulfillment === "DELIVERY" ? input.address?.city || null : null,
-            deliveryZoneId: cart.zone?.id ?? null,
-            notes: input.notes || null,
-            subtotalCents: cart.subtotalCents,
-            discountCents: cart.discountCents,
-            deliveryFeeCents: cart.deliveryFeeCents,
-            giftCardCents: cart.giftCardCents,
-            totalCents: cart.totalCents,
-            couponCode: cart.coupon?.code ?? null,
-            giftCardId: cart.giftCardCents > 0 ? cart.giftCard?.id : null,
-            requiresReview: cart.requiresReview,
-            quoteRequestId: opts.quoteRequestId ?? null,
-            marketingConsent: input.marketingConsent,
-            acceptedTermsAt: new Date(),
-            items: {
-              create: cart.lines.map((l) => ({
-                productId: l.productId,
-                name: l.name,
-                variantName: l.variantName,
-                unitPriceCents: l.unitPriceCents,
-                quantity: l.quantity,
-                options: l.options as unknown as Prisma.InputJsonValue,
-                dedication: l.dedication,
-                referencePhotoUrl: l.referencePhotoUrl,
-                isCustomCake: l.isCustomCake,
-                customSpec: l.customSpec,
-                lineTotalCents: l.lineTotalCents,
-              })),
+          await reserveStock(tx, cart.lines);
+
+          if (cart.giftCard && cart.giftCardCents > 0) {
+            const updated = await tx.giftCard.updateMany({
+              where: { id: cart.giftCard.id, status: "ACTIVE", balanceCents: { gte: cart.giftCardCents } },
+              data: { balanceCents: { decrement: cart.giftCardCents } },
+            });
+            if (updated.count === 0) throw new CheckoutError("El saldo de la tarjeta regalo ha cambiado. Vuelve a aplicarla");
+            await tx.giftCard.updateMany({ where: { id: cart.giftCard.id, balanceCents: 0 }, data: { status: "DEPLETED" } });
+          }
+          if (cart.coupon) {
+            const updated = await tx.coupon.updateMany({
+              where: { id: cart.coupon.id, active: true, ...(cart.coupon.maxRedemptions != null ? { redemptions: { lt: cart.coupon.maxRedemptions } } : {}) },
+              data: { redemptions: { increment: 1 } },
+            });
+            if (updated.count === 0) throw new CheckoutError("Este código de descuento ya se ha agotado");
+          }
+
+          const paid = opts.paymentMethod === "GIFT_CARD";
+          const created = await tx.order.create({
+            data: {
+              number: orderNumber(),
+              accessToken: secureToken(),
+              idempotencyKey: opts.idempotencyKey ?? null,
+              requestHash: opts.requestHash ?? null,
+              status: opts.status,
+              paymentMethod: opts.paymentMethod,
+              paymentStatus: paid ? "PAID" : "UNPAID",
+              fulfillment: input.fulfillment,
+              scheduledDate: input.date,
+              scheduledTime: input.time,
+              customerName: input.customer.name,
+              customerEmail: input.customer.email,
+              customerEmailHash: emailHash(input.customer.email),
+              customerPhone: input.customer.phone,
+              customerPhoneHash: phoneHash(input.customer.phone),
+              address: input.fulfillment === "DELIVERY" ? [input.address?.street, input.address?.details].filter(Boolean).join(" · ") : null,
+              postalCode: input.fulfillment === "DELIVERY" ? input.postalCode : null,
+              city: input.fulfillment === "DELIVERY" ? input.address?.city || null : null,
+              deliveryZoneId: cart.zone?.id ?? null,
+              notes: input.notes || null,
+              subtotalCents: cart.subtotalCents,
+              discountCents: cart.discountCents,
+              deliveryFeeCents: cart.deliveryFeeCents,
+              giftCardCents: cart.giftCardCents,
+              totalCents: cart.totalCents,
+              couponCode: cart.coupon?.code ?? null,
+              giftCardId: cart.giftCardCents > 0 ? cart.giftCard?.id : null,
+              requiresReview: cart.requiresReview,
+              quoteRequestId: opts.quoteRequestId ?? null,
+              marketingConsent: input.marketingConsent,
+              acceptedTermsAt: new Date(),
+              items: {
+                create: cart.lines.map((l) => ({
+                  productId: l.productId,
+                  name: l.name,
+                  variantName: l.variantName,
+                  unitPriceCents: l.unitPriceCents,
+                  quantity: l.quantity,
+                  options: l.options as unknown as Prisma.InputJsonValue,
+                  dedication: l.dedication,
+                  referencePhotoUrl: l.referencePhotoUrl,
+                  isCustomCake: l.isCustomCake,
+                  customSpec: l.customSpec,
+                  lineTotalCents: l.lineTotalCents,
+                })),
+              },
+              history: { create: { status: opts.status, note: "Pedido creado" } },
             },
-            history: { create: { status: opts.status, note: "Pedido creado" } },
-          },
-          include: { items: true },
-        });
-      });
+            include: { items: true },
+          });
+          // Pedido confirmado sin pago online: los avisos quedan encolados en la misma transacción
+          if (opts.status !== "PENDING_PAYMENT") await enqueueOrderConfirmed(tx, created.id);
+          return created;
+        },
+        { maxWait: 10_000, timeout: 15_000 },
+      );
     } catch (error) {
       // Colisión improbable del número de pedido: se reintenta con otro
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") continue;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && !String(error.meta?.target ?? "").includes("idempotencyKey")) continue;
       throw error;
     }
   }

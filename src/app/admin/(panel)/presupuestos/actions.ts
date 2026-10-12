@@ -1,15 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getSettings } from "@/lib/settings";
-import { sendEmail } from "@/lib/email";
-import { quoteAnsweredEmail } from "@/lib/emails";
+import { enqueue } from "@/lib/jobs";
+import { kickJobs } from "@/lib/job-handlers";
 import type { ActionResult } from "@/components/admin/forms";
 
 export async function answerQuote(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requirePermission("quotes.manage");
   const id = String(formData.get("id") ?? "");
   const decision = String(formData.get("decision") ?? "");
   const message = String(formData.get("message") ?? "").trim().slice(0, 2000);
@@ -19,20 +18,25 @@ export async function answerQuote(_prev: ActionResult, formData: FormData): Prom
 
   if (decision === "quote") {
     const cents = Number(formData.get("quotedCents"));
-    if (!Number.isInteger(cents) || cents < 100) return { ok: false, error: "Indica un precio válido" };
+    if (!Number.isInteger(cents) || cents < 100 || cents > 1_000_000) return { ok: false, error: "Indica un precio válido" };
     const updated = await db.quoteRequest.update({ where: { id }, data: { status: "QUOTED", quotedCents: cents, adminMessage: message || null } });
-    await sendEmail(quoteAnsweredEmail(updated, await getSettings()));
+    await auditAdmin(admin, { action: "quote.priced", entity: "QuoteRequest", entityId: id, details: { before: quote.quotedCents, after: cents } });
+    await enqueue("email.send", { template: "quote-answered", quoteId: id }, { dedupeKey: `email:quote-answered:${id}:${updated.status}:${cents}` });
+    kickJobs();
     revalidatePath(`/admin/presupuestos/${id}`);
     return { ok: true, message: "Presupuesto enviado al cliente por email" };
   }
   if (decision === "reject") {
     const updated = await db.quoteRequest.update({ where: { id }, data: { status: "REJECTED", adminMessage: message || null } });
-    await sendEmail(quoteAnsweredEmail(updated, await getSettings()));
+    await auditAdmin(admin, { action: "quote.rejected", entity: "QuoteRequest", entityId: id });
+    await enqueue("email.send", { template: "quote-answered", quoteId: id }, { dedupeKey: `email:quote-answered:${id}:${updated.status}` });
+    kickJobs();
     revalidatePath(`/admin/presupuestos/${id}`);
     return { ok: true, message: "Solicitud rechazada y cliente avisado" };
   }
   if (decision === "expire") {
     await db.quoteRequest.update({ where: { id }, data: { status: "EXPIRED" } });
+    await auditAdmin(admin, { action: "quote.expired", entity: "QuoteRequest", entityId: id });
     revalidatePath(`/admin/presupuestos/${id}`);
     return { ok: true, message: "Marcado como caducado" };
   }

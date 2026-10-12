@@ -1,0 +1,31 @@
+{
+  "description": "Reglas de caché (fase http_request_cache_settings). Se aplican todas las que coinciden y las posteriores prevalecen: la regla de 'nunca cachear' va la última a propósito.",
+  "rules": [
+    {
+      "ref": "rp_cache_next_static",
+      "description": "Estáticos con hash de Next.js: cachear en el borde respetando el Cache-Control del origen (immutable)",
+      "expression": "starts_with(http.request.uri.path, \"/_next/static/\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": {
+          "mode": "respect_origin"
+        },
+        "browser_ttl": {
+          "mode": "respect_origin"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_cache_bypass_private",
+      "description": "NUNCA cachear: panel, API, pedido, presupuesto, finalizar pedido (y carrito, seguimiento, subidas, bajas, recordatorios) ni peticiones con cookie de sesión __Host-",
+      "expression": "(starts_with(http.request.uri.path, \"/admin\") or http.request.uri.path eq \"/api\" or starts_with(http.request.uri.path, \"/api/\") or http.request.uri.path eq \"/pedido\" or starts_with(http.request.uri.path, \"/pedido/\") or http.request.uri.path eq \"/presupuesto\" or starts_with(http.request.uri.path, \"/presupuesto/\") or http.request.uri.path eq \"/finalizar-pedido\" or starts_with(http.request.uri.path, \"/finalizar-pedido/\") or starts_with(http.request.uri.path, \"/carrito\") or starts_with(http.request.uri.path, \"/seguimiento\") or starts_with(http.request.uri.path, \"/uploads/\") or starts_with(http.request.uri.path, \"/baja\") or starts_with(http.request.uri.path, \"/recordatorios\") or http.cookie contains \"__Host-\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": false
+      },
+      "enabled": true
+    }
+  ]
+}

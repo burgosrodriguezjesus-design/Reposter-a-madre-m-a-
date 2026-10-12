@@ -3,6 +3,7 @@ import { DM_Sans, Playfair_Display } from "next/font/google";
 import { getSettings } from "@/lib/settings";
 import { siteUrl } from "@/lib/site-url";
 import "./globals.css";
+import "@/lib/taint";
 
 const playfair = Playfair_Display({
   subsets: ["latin"],

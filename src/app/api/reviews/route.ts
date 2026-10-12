@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { emailHash, safeEqual } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { reviewSchema, firstError } from "@/lib/validation";
 import { limitByIp } from "@/lib/rate-limit";
@@ -19,8 +20,8 @@ export async function POST(request: Request) {
   let verified = false;
   const number = input.orderNumber?.trim().toUpperCase();
   if (number && input.email) {
-    const order = await db.order.findUnique({ where: { number } });
-    verified = !!order && order.customerEmail === input.email && order.status === "DELIVERED";
+    const order = await db.order.findUnique({ where: { number }, select: { customerEmailHash: true, status: true } });
+    verified = !!order && safeEqual(order.customerEmailHash, emailHash(input.email)) && order.status === "DELIVERED";
   }
 
   await db.review.create({

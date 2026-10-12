@@ -6,6 +6,7 @@ import { DemoBadge } from "@/components/site/ui";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
 import { deleteCoupon, deletePromotion, saveCoupon, savePromotion } from "./actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Promociones y cupones" };
 
@@ -100,6 +101,7 @@ function describe(c: Coupon) {
 }
 
 export default async function MarketingPage() {
+  await requirePermission("marketing.manage");
   const [promotions, coupons] = await Promise.all([
     db.promotion.findMany({ orderBy: [{ active: "desc" }, { sortOrder: "asc" }] }),
     db.coupon.findMany({ orderBy: [{ active: "desc" }, { createdAt: "desc" }], take: 100 }),

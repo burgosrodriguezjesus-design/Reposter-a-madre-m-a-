@@ -1,0 +1,599 @@
+# Reglas de alerta de la repostería (Prometheus 2.x/3.x).
+# PLANTILLA NO PROBADA con Prometheus real: el YAML se ha validado con Python, pero
+# promtool no está disponible en este entorno. Antes de desplegar:
+#   promtool check rules alerts.yml slo.yml
+#
+# Convenciones:
+#  - job="reposteria-app": métricas de la app (/api/metrics), una serie por réplica.
+#  - job="postgres" | "redis" | "node": exporters; job="blackbox-*": sondas HTTP.
+#  - severity: critical (avisa ya: email + chat) | warning (email, silenciado de noche)
+#    | none (Watchdog).
+#  - Las alertas con el mismo nombre y distinta severidad se inhiben entre sí
+#    (alertmanager.yml): solo llega la más grave.
+#  - Valores de etiqueta "result" que se consideran correctos (si la app usa otros,
+#    ajusta las expresiones; se usa lista negativa para que un valor inesperado
+#    genere una alerta visible y no un silencio):
+#      webhook_events_total{result}: ok|success|processed|duplicate|ignored|skipped
+#      jobs_processed_total{result}: ok|success|completed|done|retry|retried
+#  - Las rutas internas (/api/health*, /api/metrics, /api/cron*) se excluyen de
+#    latencia y errores: no son tráfico de clientes.
+
+groups:
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-disponibilidad
+    rules:
+      - alert: ReposteriaInstanceDown
+        expr: up{job="reposteria-app"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Réplica de la app caída: {{ $labels.instance }}"
+          description: "Prometheus no puede leer /api/metrics de {{ $labels.instance }} desde hace más de 2 minutos (proceso caído, reinicio en bucle o token de métricas incorrecto)."
+          runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
+
+      - alert: ReposteriaAllInstancesDown
+        expr: (sum(up{job="reposteria-app"}) or vector(0)) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ninguna réplica de la app responde"
+          description: "No hay ninguna réplica de la app viva para Prometheus. La web probablemente está caída."
+          runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
+
+      - alert: ReposteriaCapacityDegraded
+        expr: count(up{job="reposteria-app"} == 1) < 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Menos de 2 réplicas de la app sanas"
+          description: "Solo quedan {{ $value }} réplica(s) viva(s). Un fallo más deja la web sin servicio."
+          runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
+
+      - alert: ReposteriaReadinessFailing
+        expr: probe_success{job="blackbox-ready"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "/api/health/ready falla en {{ $labels.instance }}"
+          description: "La réplica {{ $labels.instance }} no está lista (BD o Redis inaccesibles desde ella) desde hace 2 minutos."
+          runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
+
+      - alert: ReposteriaReadinessFailing
+        expr: max(probe_success{job="blackbox-ready"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "/api/health/ready falla en TODAS las réplicas"
+          description: "Ninguna réplica supera la comprobación de readiness: no se pueden tomar pedidos."
+          runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
+
+      - alert: ReposteriaDatabaseUnreachable
+        expr: db_up{job="reposteria-app"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "La réplica {{ $labels.instance }} no llega a la base de datos"
+          description: "db_up=0 en {{ $labels.instance }} durante 2 minutos (PgBouncer, red o credenciales)."
+          runbook: "infra/monitoring/README.md#base-de-datos"
+
+      - alert: ReposteriaDatabaseUnreachable
+        expr: max(db_up{job="reposteria-app"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ninguna réplica llega a la base de datos"
+          description: "db_up=0 en todas las réplicas durante 2 minutos. Pedidos y panel fuera de servicio."
+          runbook: "infra/monitoring/README.md#base-de-datos"
+
+      - alert: ReposteriaRedisUnreachable
+        expr: redis_up{job="reposteria-app"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "La réplica {{ $labels.instance }} no llega a Redis"
+          description: "redis_up=0 (visto desde la app) en {{ $labels.instance }}: rate limiting y cachés degradados."
+          runbook: "infra/monitoring/README.md#redis"
+
+      - alert: ReposteriaRedisUnreachable
+        expr: max(redis_up{job="reposteria-app"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ninguna réplica llega a Redis"
+          description: "redis_up=0 (visto desde la app) en todas las réplicas durante 2 minutos."
+          runbook: "infra/monitoring/README.md#redis"
+
+      - alert: ReposteriaSiteDownExternal
+        expr: probe_success{job="blackbox-public"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} no responde desde fuera"
+          description: "La sonda HTTPS pública falla desde hace 3 minutos (DNS, TLS, proxy/WAF o app)."
+          runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
+
+      - alert: ReposteriaTLSCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox-public"} - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "El certificado TLS caduca en {{ $value | humanize }} días"
+          description: "Revisa la renovación automática (cert-manager, Let's Encrypt, Cloudflare/Vercel) para {{ $labels.instance }}."
+
+      - alert: ReposteriaTLSCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="blackbox-public"} - time()) / 86400 < 3
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "El certificado TLS caduca en {{ $value | humanize }} días"
+          description: "Renovación urgente del certificado de {{ $labels.instance }}."
+
+      - alert: ReposteriaFrequentRestarts
+        expr: changes(process_start_time_seconds{job="reposteria-app"}[30m]) > 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "La réplica {{ $labels.instance }} se reinicia a menudo"
+          description: "{{ $value }} reinicios en 30 minutos: posible falta de memoria (OOM) o error al arrancar."
+
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-rendimiento
+    rules:
+      - alert: ReposteriaHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="reposteria-app",route!~"/api/(health|metrics|cron|uploads).*"}[5m]))
+          ) > 1
+          and
+          sum(rate(http_request_duration_seconds_count{job="reposteria-app",route!~"/api/(health|metrics|cron|uploads).*"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latencia p95 global de {{ $value | humanizeDuration }} (> 1 s)"
+          description: "El percentil 95 de duración de las peticiones supera 1 s durante 10 minutos (subidas excluidas)."
+          runbook: "infra/monitoring/README.md#latencia-o-errores-5xx"
+
+      - alert: ReposteriaRouteHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, route) (rate(http_request_duration_seconds_bucket{job="reposteria-app",route!~"/api/(health|metrics|cron|uploads).*"}[5m]))
+          ) > 1
+          and
+          sum by (route) (rate(http_request_duration_seconds_count{job="reposteria-app",route!~"/api/(health|metrics|cron|uploads).*"}[5m])) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ruta lenta: {{ $labels.route }} (p95 {{ $value | humanizeDuration }})"
+          description: "El p95 de {{ $labels.route }} supera 1 s durante 15 minutos con tráfico significativo."
+          runbook: "infra/monitoring/README.md#latencia-o-errores-5xx"
+
+      - alert: ReposteriaHigh5xxRate
+        expr: |
+          sum(rate(http_requests_total{job="reposteria-app",status=~"5..",route!~"/api/(health|metrics|cron).*"}[5m]))
+          /
+          sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[5m]))
+          > 0.02
+          and
+          sum(rate(http_requests_total{job="reposteria-app",route!~"/api/(health|metrics|cron).*"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Errores 5xx al {{ $value | humanizePercentage }} (> 2 %)"
+          description: "Más del 2 % de las peticiones de clientes terminan en 5xx durante 5 minutos."
+          runbook: "infra/monitoring/README.md#latencia-o-errores-5xx"
+
+      - alert: ReposteriaHighMemory
+        expr: process_resident_memory_bytes{job="reposteria-app"} > 700 * 1024 * 1024
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memoria alta en {{ $labels.instance }}: {{ $value | humanize1024 }}B"
+          description: "La memoria residente supera 700 MiB durante 15 minutos (límite del contenedor 768 MiB): riesgo de OOM."
+
+      - alert: ReposteriaEventLoopLag
+        expr: nodejs_eventloop_lag_p99_seconds{job="reposteria-app"} > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event loop bloqueado en {{ $labels.instance }} (p99 {{ $value | humanizeDuration }})"
+          description: "El bucle de eventos de Node.js tiene retrasos > 500 ms: trabajo síncrono pesado (p. ej. imágenes) o CPU saturada."
+
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-seguridad
+    rules:
+      - alert: ReposteriaRateLimitSpike
+        expr: sum by (scope) (rate(rate_limit_blocked_total{job="reposteria-app"}[5m])) * 60 > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pico de bloqueos de rate limit en '{{ $labels.scope }}' ({{ $value | humanize }}/min)"
+          description: "Más de 30 peticiones por minuto bloqueadas por el rate limit de la app en el ámbito {{ $labels.scope }}. Posible abuso o ataque."
+          runbook: "infra/monitoring/README.md#picos-de-429-o-ataque"
+
+      - alert: ReposteriaHigh429Rate
+        expr: |
+          sum(rate(http_requests_total{job="reposteria-app",status="429"}[5m]))
+          /
+          sum(rate(http_requests_total{job="reposteria-app"}[5m]))
+          > 0.05
+          and
+          sum(rate(http_requests_total{job="reposteria-app"}[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "El {{ $value | humanizePercentage }} de las respuestas son 429"
+          description: "Más del 5 % de las respuestas son 'Too Many Requests' durante 10 minutos: ataque o límites demasiado bajos para clientes reales."
+          runbook: "infra/monitoring/README.md#picos-de-429-o-ataque"
+
+      - alert: ReposteriaAdminLoginFailures
+        expr: sum(increase(admin_login_failures_total{job="reposteria-app"}[15m])) > 10
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanize }} inicios de sesión fallidos en el panel en 15 min"
+          description: "Intentos fallidos de acceso a /admin por encima de lo normal. Revisa el registro de auditoría y los intentos de acceso."
+          runbook: "infra/monitoring/README.md#fallos-de-login-en-el-panel"
+
+      - alert: ReposteriaAdminLoginFailures
+        expr: sum(increase(admin_login_failures_total{job="reposteria-app"}[15m])) > 50
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Posible fuerza bruta contra el panel: {{ $value | humanize }} fallos en 15 min"
+          description: "Más de 50 inicios de sesión fallidos en 15 minutos. Comprueba bloqueos por IP, considera el Attack Challenge Mode/regla WAF y revisa sesiones activas."
+          runbook: "infra/monitoring/README.md#fallos-de-login-en-el-panel"
+
+      - alert: ReposteriaSecurityAlert
+        expr: sum by (type) (increase(security_alerts_total{job="reposteria-app"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alerta de seguridad de la app: {{ $labels.type }}"
+          description: "La app ha registrado {{ $value | humanize }} evento(s) de seguridad de tipo {{ $labels.type }} en 10 minutos. Revisa el registro de auditoría."
+          runbook: "infra/monitoring/README.md#fallos-de-login-en-el-panel"
+
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-pedidos-pagos
+    rules:
+      - alert: ReposteriaPaymentFailures
+        expr: |
+          (
+            sum(increase(payments_failed_total{job="reposteria-app"}[30m]))
+            /
+            (
+              sum(increase(payments_failed_total{job="reposteria-app"}[30m]))
+              + (sum(increase(payments_succeeded_total{job="reposteria-app"}[30m])) or vector(0))
+            )
+          ) > 0.25
+          and
+          sum(increase(payments_failed_total{job="reposteria-app"}[30m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "El {{ $value | humanizePercentage }} de los pagos falla (30 min)"
+          description: "Más del 25 % de los pagos fallan (con al menos 3 fallos). Revisa el dashboard de Stripe (Developers → Logs/Events) y el estado de Stripe."
+          runbook: "infra/monitoring/README.md#pagos-y-webhooks"
+
+      - alert: ReposteriaPaymentFailures
+        expr: sum(increase(payments_failed_total{job="reposteria-app"}[15m])) >= 10
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanize }} pagos fallidos en 15 minutos"
+          description: "Ráfaga de pagos fallidos: posible incidencia con Stripe, claves o configuración, o pruebas de tarjetas robadas (card testing)."
+          runbook: "infra/monitoring/README.md#pagos-y-webhooks"
+
+      - alert: ReposteriaOrderCreationFailures
+        expr: sum by (reason) (increase(orders_failed_total{job="reposteria-app"}[30m])) > 5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pedidos fallidos por '{{ $labels.reason }}' ({{ $value | humanize }} en 30 min)"
+          description: "Varios intentos de pedido terminan en error por el motivo {{ $labels.reason }}."
+          runbook: "infra/monitoring/README.md#pagos-y-webhooks"
+
+      - alert: ReposteriaWebhookErrors
+        expr: sum by (type, result) (increase(webhook_events_total{job="reposteria-app",result!~"ok|success|processed|duplicate|ignored|skipped"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Webhooks de Stripe con resultado '{{ $labels.result }}' ({{ $labels.type }})"
+          description: "{{ $value | humanize }} evento(s) de webhook no procesados correctamente en 15 min. Stripe reintenta, pero revisa firma (STRIPE_WEBHOOK_SECRET), errores de BD y la conciliación de /api/cron/jobs."
+          runbook: "infra/monitoring/README.md#pagos-y-webhooks"
+
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-cola-trabajos
+    rules:
+      - alert: ReposteriaJobsFailed
+        expr: max(jobs_failed{job="reposteria-app"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} trabajo(s) de la cola fallidos definitivamente"
+          description: "Hay trabajos (emails/notificaciones) que agotaron sus reintentos. Revísalos y reencólalos desde el panel o la BD."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+      - alert: ReposteriaJobsFailingRate
+        expr: sum by (type) (increase(jobs_processed_total{job="reposteria-app",result!~"ok|success|completed|done|retry|retried"}[15m])) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Trabajos de tipo '{{ $labels.type }}' fallando ({{ $value | humanize }} en 15 min)"
+          description: "Errores repetidos procesando trabajos {{ $labels.type }} (p. ej. SMTP caído o credenciales)."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+      - alert: ReposteriaJobsBacklog
+        expr: max(jobs_pending{job="reposteria-app"}) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} trabajos pendientes en la cola"
+          description: "La cola acumula más de 100 trabajos durante 15 minutos: el procesado no da abasto o falla."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+      - alert: ReposteriaJobsStalled
+        expr: |
+          max(jobs_pending{job="reposteria-app"}) > 0
+          and
+          (sum(increase(jobs_processed_total{job="reposteria-app"}[15m])) or vector(0)) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "La cola de trabajos está parada ({{ $value }} pendientes)"
+          description: "Hay trabajos pendientes y ninguno se ha procesado en 25 minutos: /api/cron/jobs no se está llamando (CronJob, Vercel Cron o planificador) o falla. Pagos sin conciliar y emails sin enviar."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+      # Solo en Kubernetes (kube-state-metrics); en otros despliegues no hay series y no salta.
+      - alert: ReposteriaCronJobNotSucceeding
+        expr: time() - max by (cronjob) (kube_cronjob_status_last_successful_time{namespace="reposteria",cronjob="reposteria-jobs"}) > 600
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "El CronJob {{ $labels.cronjob }} no termina bien desde hace {{ $value | humanizeDuration }}"
+          description: "El CronJob que llama a /api/cron/jobs cada minuto no tiene ejecuciones correctas recientes. Revisa 'kubectl -n reposteria get jobs' y los logs."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+      - alert: ReposteriaCronJobNotSucceeding
+        expr: time() - max by (cronjob) (kube_cronjob_status_last_successful_time{namespace="reposteria",cronjob="reposteria-daily"}) > 26 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Las tareas diarias (/api/cron) no terminan bien desde hace {{ $value | humanizeDuration }}"
+          description: "Sin ejecución correcta en 26 h: retención RGPD, recordatorios y limpieza pendientes."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-infraestructura
+    rules:
+      - alert: PostgresDown
+        expr: pg_up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL no responde al exporter ({{ $labels.instance }})"
+          description: "pg_up=0 durante 1 minuto."
+          runbook: "infra/monitoring/README.md#base-de-datos"
+
+      - alert: PostgresConnectionsHigh
+        expr: |
+          sum by (instance) (pg_stat_activity_count{job="postgres"})
+          /
+          max by (instance) (pg_settings_max_connections{job="postgres"})
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Conexiones a PostgreSQL al {{ $value | humanizePercentage }} del máximo"
+          description: "Más del 80 % de max_connections en uso durante 5 minutos. Revisa el pool de PgBouncer, connection_limit y consultas largas."
+          runbook: "infra/monitoring/README.md#base-de-datos"
+
+      - alert: PostgresConnectionsHigh
+        expr: |
+          sum by (instance) (pg_stat_activity_count{job="postgres"})
+          /
+          max by (instance) (pg_settings_max_connections{job="postgres"})
+          > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Conexiones a PostgreSQL al {{ $value | humanizePercentage }} del máximo"
+          description: "PostgreSQL está a punto de rechazar conexiones nuevas."
+          runbook: "infra/monitoring/README.md#base-de-datos"
+
+      - alert: RedisDown
+        expr: redis_up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis no responde al exporter ({{ $labels.instance }})"
+          description: "redis_up=0 en redis_exporter durante 1 minuto."
+          runbook: "infra/monitoring/README.md#redis"
+
+      - alert: RedisMemoryHigh
+        expr: |
+          (
+            redis_memory_used_bytes{job="redis"} / redis_memory_max_bytes{job="redis"} > 0.8
+            and redis_memory_max_bytes{job="redis"} > 0
+          )
+          or
+          (
+            redis_memory_used_bytes{job="redis"} / redis_total_system_memory_bytes{job="redis"} > 0.8
+            and redis_memory_max_bytes{job="redis"} == 0
+          )
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memoria de Redis al {{ $value | humanizePercentage }}"
+          description: "Redis usa más del 80 % de maxmemory (o de la RAM del sistema si maxmemory no está configurado). Configura maxmemory y una política de expulsión adecuada."
+          runbook: "infra/monitoring/README.md#redis"
+
+      - alert: HostDiskAlmostFull
+        expr: |
+          (
+            1 - node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs|fuse.*"}
+              / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs|fuse.*"}
+          ) > 0.85
+          and node_filesystem_readonly{job="node"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco al {{ $value | humanizePercentage }} en {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Uso de disco > 85 %. Revisa copias de seguridad locales, logs y volúmenes de Docker."
+          runbook: "infra/monitoring/README.md#disco"
+
+      - alert: HostDiskAlmostFull
+        expr: |
+          (
+            1 - node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs|fuse.*"}
+              / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs|fuse.*"}
+          ) > 0.95
+          and node_filesystem_readonly{job="node"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disco al {{ $value | humanizePercentage }} en {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Uso de disco > 95 %: PostgreSQL y las copias pueden fallar en cualquier momento."
+          runbook: "infra/monitoring/README.md#disco"
+
+      - alert: HostDiskWillFillIn24h
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|ramfs|overlay|squashfs|nsfs|fuse.*"}[6h], 24 * 3600) < 0
+          and node_filesystem_readonly{job="node"} == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "El disco {{ $labels.mountpoint }} de {{ $labels.instance }} se llenará en menos de 24 h"
+          description: "Según la tendencia de las últimas 6 horas."
+          runbook: "infra/monitoring/README.md#disco"
+
+  # ---------------------------------------------------------------------------------
+  - name: reposteria-copias
+    rules:
+      # Autoalojado: backup-with-metrics.sh escribe la métrica para node_exporter (textfile).
+      - alert: ReposteriaBackupTooOld
+        expr: time() - max(reposteria_backup_last_success_timestamp_seconds) > 7200
+        for: 5m
+        labels:
+          severity: critical
+          source: textfile
+        annotations:
+          summary: "La última copia de seguridad correcta tiene {{ $value | humanizeDuration }}"
+          description: "No hay copia cifrada correcta desde hace más de 2 horas (objetivo: horaria). El RPO comprometido está en riesgo."
+          runbook: "infra/monitoring/README.md#copias-de-seguridad"
+
+      # Kubernetes: CronJob reposteria-backup (kube-state-metrics).
+      - alert: ReposteriaBackupTooOld
+        expr: time() - max(kube_cronjob_status_last_successful_time{namespace="reposteria",cronjob="reposteria-backup"}) > 7200
+        for: 5m
+        labels:
+          severity: critical
+          source: kubernetes
+        annotations:
+          summary: "El CronJob de copias no termina bien desde hace {{ $value | humanizeDuration }}"
+          description: "Sin copia correcta en más de 2 horas. Revisa 'kubectl -n reposteria get jobs -l app.kubernetes.io/component=backup' y sus logs."
+          runbook: "infra/monitoring/README.md#copias-de-seguridad"
+
+      - alert: ReposteriaBackupFailed
+        expr: max(reposteria_backup_last_exit_code) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "La última ejecución de la copia de seguridad ha fallado (código {{ $value }})"
+          description: "scripts/backup.sh terminó con error. Revisa el log de la copia; si se repite, saltará ReposteriaBackupTooOld."
+          runbook: "infra/monitoring/README.md#copias-de-seguridad"
+
+      - alert: ReposteriaBackupMetricsMissing
+        expr: |
+          absent(reposteria_backup_last_success_timestamp_seconds)
+          and
+          absent(kube_cronjob_status_last_successful_time{namespace="reposteria",cronjob="reposteria-backup"})
+        for: 3h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No hay métricas de copias de seguridad"
+          description: "Ni el textfile de node_exporter ni kube-state-metrics informan de copias: la vigilancia de backups está ciega. (Si solo usas PITR de Supabase sin copia lógica, elimina esta regla de forma consciente.)"
+          runbook: "infra/monitoring/README.md#copias-de-seguridad"
+
+  # ---------------------------------------------------------------------------------
+  - name: monitorizacion
+    rules:
+      # Siempre activa: Alertmanager la envía cada minuto a un "heartbeat" externo
+      # (Better Stack, Healthchecks.io...). Si deja de llegar, ese servicio avisa de
+      # que Prometheus o Alertmanager han caído ("dead man's switch").
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Watchdog: la cadena de alertas funciona"
+          description: "Alerta siempre activa. No silenciar."
+
+      - alert: MonitoringTargetDown
+        expr: up{job=~"postgres|redis|node|blackbox-exporter|alertmanager"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Exporter caído: {{ $labels.job }} ({{ $labels.instance }})"
+          description: "Sin este exporter, sus alertas no pueden saltar."
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus no puede evaluar reglas ({{ $labels.rule_group }})"
+          description: "Hay reglas que fallan al evaluarse: alertas potencialmente ciegas."
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: sum by (integration) (rate(alertmanager_notifications_failed_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alertmanager no consigue enviar notificaciones por {{ $labels.integration }}"
+          description: "Revisa credenciales SMTP o la URL del webhook."

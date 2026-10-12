@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { safeEqual } from "@/lib/crypto";
+import { accessTokenFor } from "@/lib/access-token";
+import { signedMediaUrl } from "@/lib/storage";
 import { getSettings } from "@/lib/settings";
 import { paymentOptions } from "@/lib/checkout";
 import { QUOTE_STATUS } from "@/lib/order-status";
@@ -13,9 +16,10 @@ export const dynamic = "force-dynamic";
 
 export default async function QuotePage({ params, searchParams }: PageProps<"/presupuesto/[id]">) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const token = typeof query.t === "string" ? query.t : "";
+  const token = await accessTokenFor("presupuesto", id, query.t);
   const quote = await db.quoteRequest.findUnique({ where: { id }, include: { order: true } });
-  if (!quote || !token || quote.accessToken !== token) notFound();
+  if (!quote || !token || !safeEqual(quote.accessToken, token)) notFound();
+  const photo = signedMediaUrl(quote.referencePhotoUrl);
   const settings = await getSettings();
   const spec = quote.spec as { summary?: { label: string; value: string }[] };
   const status = QUOTE_STATUS[quote.status];
@@ -47,9 +51,9 @@ export default async function QuotePage({ params, searchParams }: PageProps<"/pr
             </div>
           </dl>
           {quote.notes && <p className="mt-4 rounded-2xl bg-cream-100 p-3 text-sm text-cocoa-700">{quote.notes}</p>}
-          {quote.referencePhotoUrl && (
+          {photo && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={quote.referencePhotoUrl} alt="Foto de inspiración enviada" className="mt-4 max-h-56 rounded-2xl object-cover" />
+            <img src={photo} alt="Foto de inspiración enviada" className="mt-4 max-h-56 rounded-2xl object-cover" />
           )}
         </section>
 

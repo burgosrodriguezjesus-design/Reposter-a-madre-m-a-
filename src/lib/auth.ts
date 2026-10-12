@@ -1,70 +1,89 @@
 import "server-only";
-import bcrypt from "bcryptjs";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { db } from "@/lib/db";
-import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, verifySession } from "@/lib/session";
+import type { AdminRole } from "@prisma/client";
+import { readSession, requestFingerprint, type SessionWithUser } from "@/lib/session";
+import { can, type Permission } from "@/lib/rbac";
+import { audit, type AuditEntry } from "@/lib/audit";
+import { securityAlert } from "@/lib/alerts";
+import { penalizeClient } from "@/lib/rate-limit";
 
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 12);
-}
+/**
+ * Autorización del panel. TODA página, acción y API del panel llama a `requirePermission`
+ * (o `requireAdmin`) en el servidor: el menú oculto o el proxy no son una barrera suficiente.
+ */
+export type AdminContext = {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRole;
+  sessionId: string;
+};
 
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
-}
-
-export async function startSession(userId: string) {
-  const token = await signSession(userId);
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_MAX_AGE,
-  });
-}
-
-export async function endSession() {
-  const jar = await cookies();
-  jar.delete(SESSION_COOKIE);
-}
-
-/** Usuario administrador de la sesión actual (o null). */
-export const getAdmin = cache(async () => {
-  const jar = await cookies();
-  const session = await verifySession(jar.get(SESSION_COOKIE)?.value);
-  if (!session) return null;
-  return db.adminUser.findUnique({
-    where: { id: session.userId },
-    select: { id: true, email: true, name: true },
-  });
+const toContext = (s: SessionWithUser): AdminContext => ({
+  id: s.user.id,
+  email: s.user.email,
+  name: s.user.name,
+  role: s.user.role,
+  sessionId: s.id,
 });
 
-/** Obligatorio al inicio de cada página y acción del panel. */
-export async function requireAdmin() {
-  const admin = await getAdmin();
-  if (!admin) redirect("/admin/login");
+/** Sesión de la petición actual (completa o pendiente de MFA). */
+export const getSession = cache(async () => {
+  const { session, problem } = await readSession();
+  if (problem === "device" && session) {
+    await securityAlert("admin.session_hijack_suspected", "Se ha usado una cookie de sesión del panel desde otro navegador; la sesión se ha revocado.", {
+      userId: session.userId,
+    });
+    await audit({ action: "auth.session_device_mismatch", entity: "AdminUser", entityId: session.userId, severity: "alert" });
+    return null;
+  }
+  return session;
+});
+
+/** Administrador con sesión completa (contraseña + segundo factor) o null. */
+export const getAdmin = cache(async (): Promise<AdminContext | null> => {
+  const session = await getSession();
+  return session?.mfaVerified ? toContext(session) : null;
+});
+
+export async function requireAdmin(): Promise<AdminContext> {
+  const session = await getSession();
+  if (!session) redirect("/admin/login");
+  if (!session.mfaVerified) redirect(session.user.totpEnabledAt ? "/admin/login/verificar" : "/admin/login/configurar");
+  return toContext(session);
+}
+
+async function denied(admin: AdminContext, permission: Permission) {
+  const { ipHash } = await requestFingerprint();
+  await audit({ action: "access.denied", actor: admin, ipHash, severity: "warning", details: { permission } });
+  await penalizeClient(2);
+  await securityAlert("admin.permission_denied", "Un usuario del panel ha intentado una acción sin permiso.", { userId: admin.id, permission }, { dedupe: admin.id });
+}
+
+/** Para páginas y Server Actions: sin permiso → vuelve al inicio del panel con aviso. */
+export async function requirePermission(permission: Permission): Promise<AdminContext> {
+  const admin = await requireAdmin();
+  if (!can(admin.role, permission)) {
+    await denied(admin, permission);
+    redirect("/admin?sin-permiso=1");
+  }
   return admin;
 }
 
-const WINDOW_MS = 15 * 60 * 1000;
-
-/** Bloqueo temporal tras demasiados intentos fallidos (por IP y por email). */
-export async function isLoginBlocked(ip: string, email: string): Promise<boolean> {
-  const since = new Date(Date.now() - WINDOW_MS);
-  const [byIp, byEmail] = await Promise.all([
-    db.loginAttempt.count({ where: { ip, success: false, createdAt: { gte: since } } }),
-    db.loginAttempt.count({ where: { email, success: false, createdAt: { gte: since } } }),
-  ]);
-  return byIp >= 10 || byEmail >= 5;
+/** Para rutas de API: devuelve el administrador o una respuesta 401/403. */
+export async function apiRequirePermission(permission: Permission): Promise<AdminContext | Response> {
+  const admin = await getAdmin();
+  if (!admin) return Response.json({ error: "No autorizado" }, { status: 401 });
+  if (!can(admin.role, permission)) {
+    await denied(admin, permission);
+    return Response.json({ error: "Sin permiso" }, { status: 403 });
+  }
+  return admin;
 }
 
-export async function recordLoginAttempt(ip: string, email: string, success: boolean) {
-  await db.loginAttempt.create({ data: { ip, email, success } });
-  // Limpieza de intentos antiguos
-  if (Math.random() < 0.05) {
-    await db.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 30 * 86_400_000) } } });
-  }
+/** Registra en la auditoría una acción hecha por el administrador actual. */
+export async function auditAdmin(admin: AdminContext, entry: Omit<AuditEntry, "actor" | "ipHash">) {
+  const { ipHash } = await requestFingerprint();
+  await audit({ ...entry, actor: { id: admin.id, email: admin.email, role: admin.role }, ipHash });
 }

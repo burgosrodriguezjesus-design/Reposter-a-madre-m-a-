@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "@/lib/db";
+import { db, type Tx } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { ACTIVE_ORDER_STATUSES } from "@/lib/order-status";
 import { getCalendar, localNow, type AvailabilityContext, type CapacityCounts } from "@/lib/availability";
@@ -7,11 +7,12 @@ import { getCalendar, localNow, type AvailabilityContext, type CapacityCounts } 
 /** Minutos que un pedido pendiente de pago reserva su franja. */
 const PAYMENT_HOLD_MINUTES = 35;
 
-async function capacityCounts(fromDate: string): Promise<CapacityCounts> {
-  const rows = await db.order.groupBy({
+/** Pedidos que ocupan capacidad desde `fromDate` (o solo ese día con `onlyDate`). */
+export async function capacityCounts(fromDate: string, client: Tx | typeof db = db, onlyDate = false): Promise<CapacityCounts> {
+  const rows = await client.order.groupBy({
     by: ["scheduledDate", "scheduledTime"],
     where: {
-      scheduledDate: { gte: fromDate },
+      scheduledDate: onlyDate ? fromDate : { gte: fromDate },
       OR: [
         { status: { in: ACTIVE_ORDER_STATUSES } },
         { status: "PENDING_PAYMENT", createdAt: { gte: new Date(Date.now() - PAYMENT_HOLD_MINUTES * 60_000) } },

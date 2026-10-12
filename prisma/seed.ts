@@ -7,7 +7,7 @@
  * Se puede ejecutar varias veces sin duplicar datos.
  */
 import { PrismaClient, type Prisma } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { hashPassword, passwordProblem } from "../src/lib/password";
 import {
   DEFAULT_BUILDER,
   DEFAULT_BUSINESS,
@@ -27,16 +27,17 @@ async function seedAdmin() {
     console.warn("⚠️  ADMIN_EMAIL / ADMIN_PASSWORD no definidos: no se crea el usuario administrador.");
     return;
   }
-  if (password.length < 10) throw new Error("ADMIN_PASSWORD debe tener al menos 10 caracteres");
+  const problem = passwordProblem(password, { email });
+  if (problem) throw new Error(`ADMIN_PASSWORD no es válida: ${problem}`);
   const exists = await db.adminUser.findUnique({ where: { email } });
   if (exists) {
     console.log(`✔ Administrador ${email} ya existe (no se cambia su contraseña)`);
     return;
   }
   await db.adminUser.create({
-    data: { email, name: "Administración", passwordHash: await bcrypt.hash(password, 12) },
+    data: { email, name: "Administración", role: "OWNER", passwordHash: await hashPassword(password) },
   });
-  console.log(`✔ Administrador creado: ${email}`);
+  console.log(`✔ Propietario creado: ${email} (en el primer acceso deberá activar la verificación en dos pasos)`);
 }
 
 async function seedSettings() {

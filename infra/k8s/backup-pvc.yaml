@@ -1,0 +1,19 @@
+# Volumen para las copias cifradas (35 días de retención local, copias horarias).
+# Dimensionar: tamaño de un volcado comprimido x 24 x 35 con margen.
+# Esta copia local NO sustituye a la copia fuera del clúster (contenedor "offsite").
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: reposteria-backups
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # Sin storageClassName = clase por defecto del clúster. Preferible una clase con
+  # cifrado en reposo y política de retención "Retain".
+  resources:
+    requests:
+      storage: 100Gi

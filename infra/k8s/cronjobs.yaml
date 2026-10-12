@@ -1,0 +1,319 @@
+# Tareas programadas. PLANTILLA NO PROBADA EN UN CLÚSTER.
+#
+#  - reposteria-jobs:   cada minuto  -> GET /api/cron/jobs (cola de trabajos + conciliación de pagos)
+#  - reposteria-daily:  diaria       -> GET /api/cron      (retención RGPD, recordatorios, limpieza)
+#  - reposteria-backup: cada hora    -> scripts/backup.sh  (pg_dump cifrado con age) + copia externa
+#
+# Los dos primeros solo hacen una petición HTTP al Service interno con
+# "Authorization: Bearer $CRON_SECRET" (leído de fichero, no de la línea de comandos).
+# curl -f hace fallar el Job si la app responde >= 400, lo que dispara las alertas
+# basadas en kube-state-metrics (infra/monitoring/alerts.yml).
+#
+# 1) Cola de trabajos, cada minuto
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reposteria-jobs
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: cron
+spec:
+  schedule: "* * * * *"
+  timeZone: "Etc/UTC"
+  # Nunca dos ejecuciones a la vez (la cola ya usa bloqueos en BD, esto es defensa extra).
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 55
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: reposteria
+            app.kubernetes.io/component: cron
+        spec:
+          restartPolicy: Never
+          serviceAccountName: reposteria-cron
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            # Necesario para que el usuario 100 pueda leer el Secret montado (modo 0440)
+            fsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: trigger
+              # Fijar por digest en producción.
+              image: curlimages/curl:8.11.1
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--fail"
+                - "--silent"
+                - "--show-error"
+                - "--max-time"
+                - "25"
+                - "--retry"
+                - "2"
+                - "--retry-delay"
+                - "3"
+                - "--retry-max-time"
+                - "45"
+                - "--retry-connrefused"
+                - "--header"
+                - "@/var/run/secrets/reposteria-cron/authorization-header"
+                - "--output"
+                - "/dev/null"
+                - "--write-out"
+                - "HTTP %{http_code} en %{time_total}s\n"
+                - "http://reposteria-app/api/cron/jobs"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: cron-auth
+                  mountPath: /var/run/secrets/reposteria-cron
+                  readOnly: true
+          volumes:
+            - name: cron-auth
+              secret:
+                secretName: reposteria-cron-auth
+                defaultMode: 0440
+---
+# 2) Tareas diarias (retención RGPD, recordatorios, limpieza), de madrugada en hora de Madrid
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reposteria-daily
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: cron
+spec:
+  schedule: "17 4 * * *"
+  timeZone: "Europe/Madrid"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: reposteria
+            app.kubernetes.io/component: cron
+        spec:
+          restartPolicy: Never
+          serviceAccountName: reposteria-cron
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            # Necesario para que el usuario 100 pueda leer el Secret montado (modo 0440)
+            fsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: trigger
+              image: curlimages/curl:8.11.1
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--fail"
+                - "--silent"
+                - "--show-error"
+                - "--max-time"
+                - "600"
+                - "--retry"
+                - "2"
+                - "--retry-delay"
+                - "30"
+                - "--retry-connrefused"
+                - "--header"
+                - "@/var/run/secrets/reposteria-cron/authorization-header"
+                - "--output"
+                - "/dev/null"
+                - "--write-out"
+                - "HTTP %{http_code} en %{time_total}s\n"
+                - "http://reposteria-app/api/cron"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+              volumeMounts:
+                - name: cron-auth
+                  mountPath: /var/run/secrets/reposteria-cron
+                  readOnly: true
+          volumes:
+            - name: cron-auth
+              secret:
+                secretName: reposteria-cron-auth
+                defaultMode: 0440
+---
+# 3) Copia de seguridad cifrada cada hora + copia fuera del clúster.
+#    - initContainer "backup": ejecuta scripts/backup.sh (pg_dump | gzip | age) en el
+#      volumen /backups y borra las de más de BACKUP_RETENTION_DAYS.
+#    - contenedor "offsite": sube con rclone las copias recientes a un bucket externo
+#      (con versionado/bloqueo de objetos y su propia regla de caducidad de 35 días).
+#    La imagen de backup no la construye este repositorio: debe incluir bash,
+#    postgresql-client 16 (pg_dump >= versión del servidor), gzip, age, coreutils y
+#    findutils, con scripts/backup.sh copiado en /opt/reposteria/scripts/ y un
+#    usuario sin privilegios (UID 10001).
+#    Si la BD es Supabase con PITR, esta copia lógica es un respaldo adicional
+#    (independiente del proveedor); puede bajarse a diaria.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reposteria-backup
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: backup
+spec:
+  schedule: "7 * * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 900
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3000
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: reposteria
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: reposteria-backup
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: backup
+              image: ghcr.io/example/reposteria-backup:1.0.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /opt/reposteria/scripts/backup.sh
+              env:
+                - name: BACKUP_DIR
+                  value: /backups
+                - name: BACKUP_RETENTION_DAYS
+                  value: "35"
+                - name: TMPDIR
+                  value: /tmp
+              envFrom:
+                # DATABASE_URL (directa, rol de backup) y BACKUP_AGE_RECIPIENT
+                - secretRef:
+                    name: reposteria-backup-secrets
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
+          containers:
+            - name: offsite
+              image: rclone/rclone:1.68.2
+              imagePullPolicy: IfNotPresent
+              args:
+                - copy
+                - /backups
+                - "offsite:reposteria-backups/"
+                - "--include"
+                - "reposteria-*"
+                - "--max-age"
+                - "3h"
+                # No sobrescribe ni modifica objetos ya subidos
+                - "--immutable"
+                - "--config"
+                - /config/rclone/rclone.conf
+                - "--cache-dir"
+                - /tmp/rclone
+                - "-v"
+              env:
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                  readOnly: true
+                - name: rclone-config
+                  mountPath: /config/rclone
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: reposteria-backups
+            - name: rclone-config
+              secret:
+                secretName: reposteria-backup-offsite
+                defaultMode: 0440
+            - name: tmp
+              emptyDir:
+                sizeLimit: 2Gi

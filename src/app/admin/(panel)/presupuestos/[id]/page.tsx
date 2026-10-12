@@ -9,13 +9,18 @@ import { QUOTE_STATUS } from "@/lib/order-status";
 import { formatDateTime, formatLocalDate, formatPrice, telLink, whatsappLink } from "@/lib/format";
 import { quoteUrl } from "@/lib/emails";
 import { answerQuote } from "../actions";
+import { auditAdmin, requirePermission } from "@/lib/auth";
+import { signedMediaUrl } from "@/lib/storage";
 
 export const metadata = { title: "Presupuesto" };
 
 export default async function QuoteDetailPage({ params }: PageProps<"/admin/presupuestos/[id]">) {
+  const admin = await requirePermission("quotes.manage");
   const { id } = await params;
   const quote = await db.quoteRequest.findUnique({ where: { id }, include: { order: true } });
   if (!quote) notFound();
+  await auditAdmin(admin, { action: "quote.view", entity: "QuoteRequest", entityId: quote.id });
+  const photo = signedMediaUrl(quote.referencePhotoUrl);
   const spec = quote.spec as { summary?: { label: string; value: string }[]; requiresQuote?: boolean };
   const open = quote.status === "NEW" || quote.status === "QUOTED";
 
@@ -47,10 +52,10 @@ export default async function QuoteDetailPage({ params }: PageProps<"/admin/pres
               </div>
             </dl>
             {quote.notes && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{quote.notes}</p>}
-            {quote.referencePhotoUrl && (
-              <a href={quote.referencePhotoUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-block">
+            {photo && (
+              <a href={photo} target="_blank" rel="noopener noreferrer" className="mt-4 inline-block">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={quote.referencePhotoUrl} alt="Foto de inspiración" className="max-h-72 rounded-xl border border-sand-300 object-cover" />
+                <img src={photo} alt="Foto de inspiración" className="max-h-72 rounded-xl border border-sand-300 object-cover" />
               </a>
             )}
             <p className="mt-4 text-sm text-cocoa-600">

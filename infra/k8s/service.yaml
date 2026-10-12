@@ -1,0 +1,20 @@
+# Service interno de la app. Su nombre ("reposteria-app") es también la etiqueta
+# job que usan las reglas de infra/monitoring cuando se scrapea con ServiceMonitor.
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+apiVersion: v1
+kind: Service
+metadata:
+  name: reposteria-app
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

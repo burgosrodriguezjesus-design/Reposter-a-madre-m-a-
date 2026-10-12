@@ -3,8 +3,10 @@ import { Search } from "lucide-react";
 import { Badge, Card, Check, Empty, Field, PageHeader } from "@/components/admin/ui";
 import { ActionForm, MoneyInput, SubmitButton } from "@/components/admin/forms";
 import { db } from "@/lib/db";
+import { parsePiiQuery } from "@/lib/pii-search";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { createGiftCard, updateGiftCard } from "./actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Tarjetas regalo" };
 
@@ -16,12 +18,17 @@ const STATUS: Record<GiftCardStatus, { label: string; tone: string }> = {
 };
 
 export default async function GiftCardsAdminPage({ searchParams }: PageProps<"/admin/tarjetas-regalo">) {
+  await requirePermission("giftcards.manage");
   const { q } = await searchParams;
   const query = typeof q === "string" ? q.trim() : "";
+  const search = parsePiiQuery(query);
   const cards = await db.giftCard.findMany({
-    where: query
-      ? { OR: [{ code: { contains: query.toUpperCase() } }, { purchaserEmail: { contains: query.toLowerCase() } }, { recipientEmail: { contains: query.toLowerCase() } }] }
-      : {},
+    where:
+      search.kind === "email"
+        ? { OR: [{ purchaserEmailHash: search.hash }, { recipientEmailHash: search.hash }] }
+        : query
+          ? { code: { contains: query.toUpperCase() } }
+          : {},
     orderBy: { createdAt: "desc" },
     take: 100,
   });

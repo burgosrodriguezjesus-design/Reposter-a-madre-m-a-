@@ -15,7 +15,10 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:encrypt": "tsx scripts/encrypt-data.ts",
+    "keys:generate": "tsx scripts/generate-keys.ts",
+    "keys:rotate": "tsx scripts/encrypt-data.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -24,13 +27,18 @@
     "node": ">=20.9.0"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.19.3",
+    "@simplewebauthn/browser": "^13.2.2",
+    "@simplewebauthn/server": "^13.2.2",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "ioredis": "^5.8.2",
     "jose": "^6.2.12",
     "lucide-react": "^1.55.0",
     "next": "^16.4.0",
     "nodemailer": "^10.1.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "server-only": "^0.0.1",
@@ -42,8 +50,10 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.5",
     "@types/nodemailer": "^8.0.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "autocannon": "^8.0.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.0",
     "postcss": "^8.5.29",

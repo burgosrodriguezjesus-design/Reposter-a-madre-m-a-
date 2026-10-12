@@ -1,15 +1,15 @@
+import Link from "next/link";
 import { CheckCircle2, CircleAlert, Trash2 } from "lucide-react";
-import { Card, Field, PageHeader } from "@/components/admin/ui";
-import { ActionForm, ConfirmButton, SubmitButton } from "@/components/admin/forms";
+import { Card, PageHeader } from "@/components/admin/ui";
+import { ActionForm, SubmitButton } from "@/components/admin/forms";
 import { SettingsForm, type FieldDef } from "@/components/admin/SettingsForm";
 import { DemoDataButton } from "./DemoDataButton";
-import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { hasDemoContent } from "@/lib/catalog";
-import { requireAdmin } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { setupChecklist } from "@/lib/setup-status";
 import { isWhatsAppApiConfigured } from "@/lib/whatsapp";
-import { addAdminUser, changePassword, removeAdminUser, removeBusinessPhoto, uploadBusinessPhoto } from "./actions";
+import { removeBusinessPhoto, uploadBusinessPhoto } from "./actions";
 
 export const metadata = { title: "Ajustes" };
 
@@ -86,8 +86,8 @@ function pick(obj: object, fields: FieldDef[]) {
 }
 
 export default async function SettingsPage() {
-  const admin = await requireAdmin();
-  const [settings, demo, admins] = await Promise.all([getSettings(), hasDemoContent(), db.adminUser.findMany({ orderBy: { createdAt: "asc" } })]);
+  await requirePermission("settings.manage");
+  const [settings, demo] = await Promise.all([getSettings(), hasDemoContent()]);
   const b = settings.business;
   const checklist = setupChecklist(settings, demo);
   const integrations = [
@@ -222,44 +222,21 @@ export default async function SettingsPage() {
         </Card>
 
         <Card title="Cuenta y usuarios" id="cuenta">
-          <div className="grid gap-6 md:grid-cols-2">
-            <ActionForm action={changePassword} className="space-y-3" resetOnSuccess>
-              <h3 className="font-semibold">Cambiar mi contraseña</h3>
-              <Field label="Contraseña actual">
-                <input type="password" name="current" required autoComplete="current-password" className="input" />
-              </Field>
-              <Field label="Nueva contraseña" hint="Mínimo 10 caracteres. Usa una frase larga.">
-                <input type="password" name="next" required minLength={10} autoComplete="new-password" className="input" />
-              </Field>
-              <SubmitButton className="btn-dark btn-sm">Cambiar contraseña</SubmitButton>
-            </ActionForm>
-            <div>
-              <h3 className="font-semibold">Usuarios con acceso</h3>
-              <ul className="mt-2 space-y-1 text-sm">
-                {admins.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-2 rounded-xl bg-cream-50 px-3 py-2">
-                    <span>
-                      {a.name} · {a.email}
-                    </span>
-                    {a.id !== admin.id && (
-                      <form action={removeAdminUser}>
-                        <input type="hidden" name="id" value={a.id} />
-                        <ConfirmButton message={`¿Quitar el acceso a ${a.email}?`} className="btn-ghost btn-sm text-red-700">
-                          Quitar
-                        </ConfirmButton>
-                      </form>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <ActionForm action={addAdminUser} className="mt-4 space-y-2" resetOnSuccess>
-                <input name="name" required placeholder="Nombre" className="input" />
-                <input name="email" type="email" required placeholder="Email" className="input" />
-                <input name="password" type="password" required minLength={10} placeholder="Contraseña inicial" className="input" autoComplete="new-password" />
-                <SubmitButton className="btn-outline btn-sm">Añadir usuario</SubmitButton>
-              </ActionForm>
-            </div>
-          </div>
+          <p className="text-sm text-cocoa-600">
+            Gestiona tu contraseña, la verificación en dos pasos y tus sesiones en{" "}
+            <Link href="/admin/seguridad" className="font-medium text-blush-700 underline">
+              Seguridad
+            </Link>
+            . Los usuarios del equipo y sus permisos están en{" "}
+            <Link href="/admin/usuarios" className="font-medium text-blush-700 underline">
+              Usuarios
+            </Link>{" "}
+            y el registro de actividad en{" "}
+            <Link href="/admin/auditoria" className="font-medium text-blush-700 underline">
+              Auditoría
+            </Link>
+            .
+          </p>
         </Card>
 
         <Card title="Datos de demostración" id="demo">
