@@ -18,7 +18,9 @@
     "postinstall": "prisma generate",
     "db:encrypt": "tsx scripts/encrypt-data.ts",
     "keys:generate": "tsx scripts/generate-keys.ts",
-    "keys:rotate": "tsx scripts/encrypt-data.ts"
+    "keys:rotate": "tsx scripts/encrypt-data.ts",
+    "db:check-security": "tsx scripts/check-db-security.ts",
+    "db:least-privilege": "psql \"$ADMIN_DATABASE_URL\" -v ON_ERROR_STOP=1 -f prisma/sql/least-privilege.sql"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

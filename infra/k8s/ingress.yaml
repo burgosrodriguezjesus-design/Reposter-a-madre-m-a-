@@ -1,8 +1,8 @@
 # Ingress para ingress-nginx con TLS (cert-manager) y límites de peticiones.
 # PLANTILLA NO PROBADA EN UN CLÚSTER.
 #
-# AVISO: el proyecto comunitario ingress-nginx anunció su retirada (mantenimiento
-# solo hasta marzo de 2026). Estas anotaciones son específicas de ingress-nginx;
+# AVISO: el proyecto comunitario ingress-nginx está retirado (mantenimiento de mejor
+# esfuerzo solo hasta marzo de 2026). Estas anotaciones son específicas de ingress-nginx;
 # para clústeres nuevos valora Gateway API con una implementación mantenida
 # (ver README.md). Mantén el controlador actualizado y sin "snippets" habilitados.
 #
@@ -184,7 +184,8 @@ spec:
 ---
 # 4) Webhook de Stripe: sin ModSecurity (el cuerpo JSON firmado debe llegar intacto
 #    y el CRS genera falsos positivos); la firma se verifica en la app.
-#    Opcional: restringir a las IPs publicadas por Stripe con whitelist-source-range.
+#    Opcional: restringir a las IPs publicadas por Stripe con allowlist-source-range
+#    (https://stripe.com/files/ips/ips_webhooks.txt), revisándolas cuando Stripe avise.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -229,7 +230,10 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    # Solo loopback del controlador = nadie desde fuera.
+    # Solo loopback del controlador = nadie desde fuera. "allowlist-source-range" es el
+    # nombre actual; "whitelist-source-range" (obsoleto) se mantiene para controladores
+    # antiguos que no conocen el nuevo. Ambos con el mismo valor.
+    nginx.ingress.kubernetes.io/allowlist-source-range: "127.0.0.1/32"
     nginx.ingress.kubernetes.io/whitelist-source-range: "127.0.0.1/32"
 spec:
   ingressClassName: nginx

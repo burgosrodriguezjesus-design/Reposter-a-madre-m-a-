@@ -55,7 +55,8 @@ function encryptData(model: string, data: Obj) {
       const value = isSet ? (raw as Obj).set : raw;
       if (value === undefined) continue;
       const spec = blind[key];
-      if (spec) data[spec.hash] = typeof value === "string" ? (value ? blindIndex(spec.kind, value) : "") : null;
+      // El índice ciego se calcula solo si la escritura no lo fija explícitamente (p. ej. al anonimizar)
+      if (spec && !(spec.hash in data)) data[spec.hash] = typeof value === "string" ? (value ? blindIndex(spec.kind, value) : "") : null;
       if (typeof value === "string" && value !== "") {
         const enc = encrypt(value, `${model}.${key}`);
         data[key] = isSet ? { set: enc } : enc;

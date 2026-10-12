@@ -10,11 +10,24 @@
 #    | none (Watchdog).
 #  - Las alertas con el mismo nombre y distinta severidad se inhiben entre sí
 #    (alertmanager.yml): solo llega la más grave.
-#  - Valores de etiqueta "result" que se consideran correctos (si la app usa otros,
-#    ajusta las expresiones; se usa lista negativa para que un valor inesperado
-#    genere una alerta visible y no un silencio):
-#      webhook_events_total{result}: ok|success|processed|duplicate|ignored|skipped
-#      jobs_processed_total{result}: ok|success|completed|done|retry|retried
+#  - Valores de la etiqueta "result" que emite la app (revisados en el código):
+#      webhook_events_total{result}: de error -> error | invalid_signature | missing
+#        (pedido inexistente) | mismatch (importe distinto) | ignored_mode (evento de
+#        test en producción o al revés); normales -> paid, late, already, duplicate,
+#        ignored, awaiting_payment, expired, payment_failed, refund_recorded,
+#        giftcard_activated, giftcard_cancelled.
+#      jobs_processed_total{result}: ok | retry | failed (reintentos agotados).
+#    Para webhooks se usa una lista POSITIVA de errores (los resultados normales son
+#    muchos y crecerán); para trabajos, una lista negativa (ok|retry) para que un
+#    valor nuevo inesperado se vea.
+#  - jobs_pending incluye trabajos programados para el futuro (p. ej. recordatorios):
+#    para detectar atrasos se usa jobs_oldest_pending_seconds (antigüedad del trabajo
+#    pendiente más antiguo YA vencido; 0 si no hay ninguno), que también expone la app.
+#  - Métricas de proceso: la app expone process_resident_memory_bytes,
+#    process_uptime_seconds, nodejs_heap_size_used_bytes y
+#    nodejs_eventloop_delay_p99_ms. Las reglas aceptan también los nombres estándar de
+#    prom-client (process_start_time_seconds, nodejs_eventloop_lag_p99_seconds) por si
+#    la app pasa a usarlo.
 #  - Las rutas internas (/api/health*, /api/metrics, /api/cron*) se excluyen de
 #    latencia y errores: no son tráfico de clientes.
 
@@ -141,7 +154,10 @@ groups:
           description: "Renovación urgente del certificado de {{ $labels.instance }}."
 
       - alert: ReposteriaFrequentRestarts
-        expr: changes(process_start_time_seconds{job="reposteria-app"}[30m]) > 2
+        expr: |
+          changes(process_start_time_seconds{job="reposteria-app"}[30m]) > 2
+          or
+          resets(process_uptime_seconds{job="reposteria-app"}[30m]) > 2
         for: 0m
         labels:
           severity: warning
@@ -208,13 +224,26 @@ groups:
           description: "La memoria residente supera 700 MiB durante 15 minutos (límite del contenedor 768 MiB): riesgo de OOM."
 
       - alert: ReposteriaEventLoopLag
-        expr: nodejs_eventloop_lag_p99_seconds{job="reposteria-app"} > 0.5
+        expr: |
+          nodejs_eventloop_delay_p99_ms{job="reposteria-app"} / 1000 > 0.5
+          or
+          nodejs_eventloop_lag_p99_seconds{job="reposteria-app"} > 0.5
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: "Event loop bloqueado en {{ $labels.instance }} (p99 {{ $value | humanizeDuration }})"
-          description: "El bucle de eventos de Node.js tiene retrasos > 500 ms: trabajo síncrono pesado (p. ej. imágenes) o CPU saturada."
+          description: "El bucle de eventos de Node.js tiene retrasos > 500 ms: trabajo síncrono pesado (p. ej. imágenes) o CPU saturada. Por encima de LOAD_SHED_DELAY_MS (1 s) la app descarta tráfico no esencial con 503."
+
+      - alert: ReposteriaLoadShedding
+        expr: sum by (kind) (increase(load_shed_total{job="reposteria-app"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "La app está descartando tráfico ({{ $labels.kind }}) por saturación"
+          description: "{{ $value | humanize }} peticiones no esenciales respondidas con 503 en 5 minutos (pedidos, pagos y panel se siguen atendiendo). Comprueba el HPA/réplicas, la CPU y si hay un ataque (picos de 429)."
+          runbook: "infra/monitoring/README.md#latencia-o-errores-5xx"
 
   # ---------------------------------------------------------------------------------
   - name: reposteria-seguridad
@@ -319,13 +348,23 @@ groups:
           runbook: "infra/monitoring/README.md#pagos-y-webhooks"
 
       - alert: ReposteriaWebhookErrors
-        expr: sum by (type, result) (increase(webhook_events_total{job="reposteria-app",result!~"ok|success|processed|duplicate|ignored|skipped"}[15m])) > 0
+        expr: sum by (type, result) (increase(webhook_events_total{job="reposteria-app",result=~"error|invalid_signature|missing|mismatch|ignored_mode"}[15m])) > 0
         for: 0m
         labels:
           severity: warning
         annotations:
           summary: "Webhooks de Stripe con resultado '{{ $labels.result }}' ({{ $labels.type }})"
-          description: "{{ $value | humanize }} evento(s) de webhook no procesados correctamente en 15 min. Stripe reintenta, pero revisa firma (STRIPE_WEBHOOK_SECRET), errores de BD y la conciliación de /api/cron/jobs."
+          description: "{{ $value | humanize }} evento(s) de webhook no procesados correctamente en 15 min. error: Stripe reintenta (revisa BD/logs); invalid_signature: STRIPE_WEBHOOK_SECRET incorrecto o peticiones falsas; mismatch/missing: importe o pedido que no cuadra (revisar a mano); ignored_mode: eventos test/live cruzados. La conciliación de /api/cron/jobs recupera pagos perdidos."
+          runbook: "infra/monitoring/README.md#pagos-y-webhooks"
+
+      - alert: ReposteriaWebhookErrors
+        expr: sum(increase(webhook_events_total{job="reposteria-app",result=~"error|invalid_signature"}[15m])) >= 10
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanize }} webhooks de Stripe fallidos en 15 minutos"
+          description: "Fallo sistemático del webhook (secreto rotado sin actualizar, BD caída o ataque con firmas falsas). Los pagos se quedarán sin confirmar hasta la conciliación."
           runbook: "infra/monitoring/README.md#pagos-y-webhooks"
 
   # ---------------------------------------------------------------------------------
@@ -338,7 +377,7 @@ groups:
           severity: warning
         annotations:
           summary: "{{ $value }} trabajo(s) de la cola fallidos definitivamente"
-          description: "Hay trabajos (emails/notificaciones) que agotaron sus reintentos. Revísalos y reencólalos desde el panel o la BD."
+          description: "Hay trabajos (emails/notificaciones) que agotaron sus reintentos. Revísalos y reencólalos (retryJob de src/lib/jobs.ts o en la BD)."
           runbook: "infra/monitoring/README.md#cola-de-trabajos"
 
       - alert: ReposteriaJobsFailingRate
@@ -351,27 +390,40 @@ groups:
           description: "Errores repetidos procesando trabajos {{ $labels.type }} (p. ej. SMTP caído o credenciales)."
           runbook: "infra/monitoring/README.md#cola-de-trabajos"
 
+      # jobs_pending incluye trabajos programados a futuro: umbral alto y solo aviso.
       - alert: ReposteriaJobsBacklog
-        expr: max(jobs_pending{job="reposteria-app"}) > 100
-        for: 15m
+        expr: max(jobs_pending{job="reposteria-app"}) > 500
+        for: 30m
         labels:
           severity: warning
         annotations:
           summary: "{{ $value }} trabajos pendientes en la cola"
-          description: "La cola acumula más de 100 trabajos durante 15 minutos: el procesado no da abasto o falla."
+          description: "La cola acumula más de 500 trabajos (incluidos los programados a futuro) durante 30 minutos. Si ReposteriaJobsDelayed no salta, probablemente son recordatorios programados; si salta, el procesado no da abasto."
           runbook: "infra/monitoring/README.md#cola-de-trabajos"
 
+      # Atraso: el trabajo vencido más antiguo lleva más de 10 min esperando.
+      - alert: ReposteriaJobsDelayed
+        expr: max(jobs_oldest_pending_seconds{job="reposteria-app"}) > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "La cola de trabajos va con {{ $value | humanizeDuration }} de atraso"
+          description: "Hay trabajos vencidos sin procesar desde hace más de 10 minutos (emails de pedido, notificaciones, conciliación)."
+          runbook: "infra/monitoring/README.md#cola-de-trabajos"
+
+      # Parada: atraso > 20 min y ningún trabajo procesado en 15 min.
       - alert: ReposteriaJobsStalled
         expr: |
-          max(jobs_pending{job="reposteria-app"}) > 0
+          max(jobs_oldest_pending_seconds{job="reposteria-app"}) > 1200
           and
           (sum(increase(jobs_processed_total{job="reposteria-app"}[15m])) or vector(0)) == 0
-        for: 10m
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "La cola de trabajos está parada ({{ $value }} pendientes)"
-          description: "Hay trabajos pendientes y ninguno se ha procesado en 25 minutos: /api/cron/jobs no se está llamando (CronJob, Vercel Cron o planificador) o falla. Pagos sin conciliar y emails sin enviar."
+          summary: "La cola de trabajos está parada ({{ $value | humanizeDuration }} de atraso)"
+          description: "Hay trabajos vencidos desde hace más de 20 minutos y ninguno se ha procesado en 15: /api/cron/jobs no se está llamando (CronJob, Vercel Cron o planificador externo) o falla. Pagos sin conciliar y emails sin enviar."
           runbook: "infra/monitoring/README.md#cola-de-trabajos"
 
       # Solo en Kubernetes (kube-state-metrics); en otros despliegues no hay series y no salta.

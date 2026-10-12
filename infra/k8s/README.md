@@ -49,8 +49,8 @@
 
 ### Aviso sobre ingress-nginx
 
-El proyecto comunitario **ingress-nginx** anunció su retirada (mantenimiento de
-mejor esfuerzo solo hasta marzo de 2026, sin parches de seguridad después). Las
+El proyecto comunitario **ingress-nginx** está retirado (mantenimiento de mejor
+esfuerzo solo hasta marzo de 2026, sin parches de seguridad después). Las
 anotaciones de `ingress.yaml` son específicas de ese controlador. Para un clúster
 nuevo conviene usar **Gateway API** (`Gateway` + `HTTPRoute`) con una implementación
 mantenida (Envoy Gateway, NGINX Gateway Fabric, Traefik, Cilium...) y trasladar los
@@ -100,6 +100,18 @@ IP. Las NetworkPolicy garantizan que a la app solo se llega a través del ingres
 
 ## Decisiones y compromisos
 
+- **Réplicas**: el Deployment no fija `replicas` y el HPA mantiene entre 3 y 20. Al
+  crearlo por primera vez arranca con 1 pod durante los segundos que tarda el HPA en
+  subirlo a 3 (el PDB `minAvailable: 2` no bloquea nada en ese momento porque no hay
+  desalojos). Si prefieres evitarlo, crea el primer despliegue con `replicas: 3` y
+  quítalo después, o no uses el HPA y descomenta `replicas: 3`.
+- **Sondas y NetworkPolicy**: las sondas las hace el kubelet desde el nodo; la mayoría
+  de CNI (Calico, Cilium) las permiten aunque haya `default-deny-all`. Si tu CNI no lo
+  hace, añade un `ipBlock` con el rango de los nodos al puerto 3000 en `app-ingress`.
+- **Controlador de ingress con `hostNetwork`**: si el controlador usa la red del host,
+  el selector de pods de `app-ingress` no lo reconoce; usa un `ipBlock` con el rango de
+  los nodos en su lugar.
+
 - **Readiness con BD y Redis**: si la BD cae, todos los pods salen del Service y el
   ingress devuelve 503 en todo el sitio (también en páginas de catálogo que podrían
   servirse desde caché). Es intencionado para no aceptar pedidos que no se pueden
@@ -121,6 +133,9 @@ IP. Las NetworkPolicy garantizan que a la app solo se llega a través del ingres
   `scripts/restore.sh` contra una BD temporal y mide el RTO real.
 
 ## Adaptaciones habituales
+
+- **Sin Prometheus Operator**: la variante `kubernetes_sd_configs` comentada en
+  `infra/monitoring/prometheus.yml` scrapea cada pod con el token de métricas.
 
 - **BD/Redis gestionados (Supabase, Upstash, RDS...)**: en `networkpolicy.yaml`
   sustituye los destinos `reposteria-data` por `ipBlock` con las IPs/rangos del

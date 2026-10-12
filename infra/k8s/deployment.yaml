@@ -19,7 +19,11 @@ metadata:
     # Opcional, con Stakater Reloader: reinicia los pods cuando ESO rota el secreto.
     secret.reloader.stakater.com/reload: "reposteria-app-secrets"
 spec:
-  # Sin "replicas": lo gestiona el HPA (mínimo 3). Si no usas HPA, pon replicas: 3.
+  # 3 réplicas como mínimo garantizadas por el HPA (minReplicas: 3, hpa.yaml).
+  # "replicas" se omite a propósito (recomendación de Kubernetes con HPA): si estuviera
+  # aquí, cada "kubectl apply"/sincronización de GitOps podría devolver el Deployment a
+  # 3 pods en mitad de un pico. Si NO usas el HPA, descomenta la línea siguiente.
+  # replicas: 3
   revisionHistoryLimit: 5
   strategy:
     type: RollingUpdate

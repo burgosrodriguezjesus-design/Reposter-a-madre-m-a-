@@ -69,13 +69,19 @@ inhibit_rules:
   - source_matchers:
       - alertname =~ "ReposteriaAllInstancesDown|ReposteriaSiteDownExternal"
     target_matchers:
-      - alertname =~ "ReposteriaInstanceDown|ReposteriaCapacityDegraded|ReposteriaReadinessFailing|ReposteriaHighLatencyP95|ReposteriaRouteHighLatencyP95|ReposteriaHigh5xxRate|ReposteriaJobsStalled|ReposteriaJobsBacklog|ReposteriaErrorBudgetBurn"
+      - alertname =~ "ReposteriaInstanceDown|ReposteriaCapacityDegraded|ReposteriaReadinessFailing|ReposteriaHighLatencyP95|ReposteriaRouteHighLatencyP95|ReposteriaHigh5xxRate|ReposteriaJobsStalled|ReposteriaJobsDelayed|ReposteriaJobsBacklog|ReposteriaErrorBudgetBurn|ReposteriaLoadShedding"
 
   # Si PostgreSQL está caído, la app no llega a la BD y la cola se para.
   - source_matchers:
       - alertname = "PostgresDown"
     target_matchers:
-      - alertname =~ "ReposteriaDatabaseUnreachable|ReposteriaReadinessFailing|ReposteriaJobsStalled|ReposteriaJobsBacklog|PostgresConnectionsHigh|ReposteriaHigh5xxRate"
+      - alertname =~ "ReposteriaDatabaseUnreachable|ReposteriaReadinessFailing|ReposteriaJobsStalled|ReposteriaJobsDelayed|ReposteriaJobsBacklog|PostgresConnectionsHigh|ReposteriaHigh5xxRate"
+
+  # La cola parada ya engloba el atraso.
+  - source_matchers:
+      - alertname = "ReposteriaJobsStalled"
+    target_matchers:
+      - alertname =~ "ReposteriaJobsDelayed|ReposteriaJobsBacklog"
 
   # Si Redis está caído, la app lo ve caído y la readiness falla.
   - source_matchers:

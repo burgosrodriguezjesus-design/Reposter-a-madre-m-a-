@@ -58,16 +58,28 @@ export default async function PrivacyPage() {
         UU. o en cláusulas contractuales tipo.
       </p>
       <h2>Plazos de conservación</h2>
+      <ul>
+        <li>Datos de pedidos: 6 años desde la venta (obligaciones contables, art. 30 del Código de Comercio). Después se anonimizan automáticamente.</li>
+        <li>Fotografías de referencia: se borran automáticamente 90 días después de la fecha del pedido.</li>
+        <li>Solicitudes de presupuesto no aceptadas: 12 meses.</li>
+        <li>Carritos guardados para recordatorio: 30 días.</li>
+        <li>Fichas de cliente sin pedidos ni consentimiento: 24 meses sin actividad.</li>
+        <li>Comunicaciones comerciales y recordatorios: hasta que retires tu consentimiento.</li>
+        <li>Registros de seguridad: intentos de acceso 90 días; registro de actividad del panel 2 años; copias de seguridad cifradas 35 días.</li>
+      </ul>
+      <h2>Cómo protegemos tus datos</h2>
       <p>
-        Los datos de pedidos se conservan mientras dure la relación y, después, durante los plazos legales (con carácter general, 6 años
-        para obligaciones contables). Los carritos guardados se eliminan a los 30 días. Los datos de marketing, hasta que retires tu
-        consentimiento.
+        Toda la comunicación viaja cifrada (HTTPS con TLS 1.2 o 1.3). Tu nombre, email, teléfono, dirección, notas y fotos se guardan cifrados
+        (AES-256) y solo puede verlos el personal autorizado de la repostería, con verificación en dos pasos y con registro de cada acceso. Las
+        copias de seguridad también están cifradas. Si se produjera una brecha de seguridad que te afectara, lo notificaríamos a la Agencia
+        Española de Protección de Datos en 72 horas y, cuando proceda, también a ti.
       </p>
       <h2>Tus derechos</h2>
       <p>
-        Puedes ejercer tus derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a {b.email}{" "}
-        indicando el derecho que ejerces. Si consideras que no hemos atendido correctamente tu solicitud, puedes reclamar ante la Agencia
-        Española de Protección de Datos (www.aepd.es).
+        Puedes ejercer tus derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad desde{" "}
+        <Link href="/privacidad/derechos">este formulario</Link> (te pediremos confirmarlo desde tu email para proteger tus datos) o escribiendo
+        a {b.email}. Respondemos en el plazo máximo de un mes. Si consideras que no hemos atendido correctamente tu solicitud, puedes reclamar
+        ante la Agencia Española de Protección de Datos (www.aepd.es).
       </p>
     </LegalPage>
   );

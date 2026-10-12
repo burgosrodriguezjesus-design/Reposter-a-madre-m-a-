@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { isCronAuthorized } from "@/lib/http";
+import { applyRetention } from "@/lib/privacy";
+import { verifyAuditChain } from "@/lib/audit";
+import { securityAlert } from "@/lib/alerts";
+import { kickJobs } from "@/lib/job-handlers";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { sendEmail } from "@/lib/email";
@@ -13,8 +17,11 @@ import { formatLocalDate } from "@/lib/format";
  *  1. Revisa pagos pendientes caducados.
  *  2. Envía UN recordatorio de carrito a quien lo autorizó.
  *  3. Envía los recordatorios de celebraciones.
- *  4. Limpia datos antiguos (minimización de datos, RGPD).
+ *  4. Aplica los plazos de conservación (anonimización y borrado, RGPD).
+ *  5. Verifica el registro de auditoría y envía su huella fuera del sistema.
  */
+export const maxDuration = 60;
+
 export async function GET(request: Request) {
   if (!isCronAuthorized(request)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const settings = await getSettings();
@@ -78,9 +85,17 @@ export async function GET(request: Request) {
     }
   }
 
-  // 4. Limpieza
-  await db.abandonedCart.deleteMany({ where: { updatedAt: { lt: new Date(Date.now() - 30 * 86_400_000) } } });
-  await db.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 30 * 86_400_000) } } });
+  // 4. Conservación limitada (RGPD): anonimización y borrado automáticos
+  const retention = await applyRetention();
 
-  return NextResponse.json({ ok: true, ...report });
+  // 5. Ancla externa del registro de auditoría: la huella actual sale del sistema (alerta diaria)
+  const chain = await verifyAuditChain();
+  if (!chain.ok) {
+    await securityAlert("audit.chain_broken", "La cadena del registro de auditoría no es íntegra.", { brokenAtSeq: chain.brokenAtSeq ?? null }, { severity: "critical" });
+  } else {
+    await securityAlert("audit.anchor", "Huella diaria del registro de auditoría (guárdala para poder demostrar que no se ha alterado).", { entries: chain.checked, head: chain.head ?? null });
+  }
+  kickJobs();
+
+  return NextResponse.json({ ok: true, ...report, retention, auditChainOk: chain.ok }, { headers: { "Cache-Control": "no-store" } });
 }
