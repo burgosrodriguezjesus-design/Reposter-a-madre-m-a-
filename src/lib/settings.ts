@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { cached, invalidateMicroCache } from "@/lib/micro-cache";
 import {
   DEFAULT_BUILDER,
   DEFAULT_BUSINESS,
@@ -23,7 +24,8 @@ export const SETTINGS_DEFAULTS: AllSettings = {
 
 /** Ajustes combinados con los valores por defecto (una consulta por petición). */
 export const getSettings = cache(async (): Promise<AllSettings> => {
-  const rows = await db.setting.findMany();
+  // Micro-caché de 15 s por instancia: los ajustes se leen en casi todas las páginas y APIs
+  const rows = await cached("settings", 15_000, () => db.setting.findMany());
   const result = structuredClone(SETTINGS_DEFAULTS) as AllSettings;
   for (const row of rows) {
     const key = row.key as SettingsKey;
@@ -36,6 +38,7 @@ export const getSettings = cache(async (): Promise<AllSettings> => {
 });
 
 export async function saveSettings<K extends SettingsKey>(key: K, value: AllSettings[K]) {
+  invalidateMicroCache();
   const json = value as unknown as Prisma.InputJsonValue;
   await db.setting.upsert({
     where: { key },

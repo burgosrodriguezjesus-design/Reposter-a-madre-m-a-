@@ -36,7 +36,7 @@ function multiplier(): number {
   return Math.max(1, Number(process.env.RATE_LIMIT_MULTIPLIER ?? 1));
 }
 
-async function counts(key: string, windowMs: number): Promise<{ current: number; previous: number; elapsed: number }> {
+async function counts(key: string, windowMs: number, penaltyKey?: string): Promise<{ current: number; previous: number; elapsed: number; penalty?: number }> {
   const now = Date.now();
   const bucket = Math.floor(now / windowMs);
   const elapsed = (now % windowMs) / windowMs;
@@ -45,8 +45,11 @@ async function counts(key: string, windowMs: number): Promise<{ current: number;
   const redis = getRedis();
   if (redis && redisReady()) {
     try {
-      const res = await redis.multi().incr(cur).pexpire(cur, windowMs * 2).get(prev).exec();
-      if (res && !res.some(([e]) => e)) return { current: Number(res[0][1]), previous: Number(res[2][1] ?? 0), elapsed };
+      // Una sola ida y vuelta a Redis: contador, ventana anterior y penalización
+      const m = redis.multi().incr(cur).pexpire(cur, windowMs * 2).get(prev);
+      if (penaltyKey) m.get(penaltyKey);
+      const res = await m.exec();
+      if (res && !res.some(([e]) => e)) return { current: Number(res[0][1]), previous: Number(res[2][1] ?? 0), elapsed, penalty: penaltyKey ? Number(res[3][1] ?? 0) : undefined };
     } catch {
       // Redis lento o caído: se usa la memoria local
     }
@@ -83,9 +86,10 @@ export async function penalize(subject: string, points = 1) {
 }
 
 export async function rateLimit(scope: string, subject: string, limit: number, windowMs: number): Promise<Result> {
-  const penalty = await penaltyOf(subject);
+  const r = await counts(`${scope}:${subject}`, windowMs, `rl:pen:${subject}`);
+  const { current, previous, elapsed } = r;
+  const penalty = r.penalty ?? (await penaltyOf(subject));
   const effective = Math.max(1, Math.floor((limit * multiplier() * loadFactor()) / (1 + penalty / 10)));
-  const { current, previous, elapsed } = await counts(`${scope}:${subject}`, windowMs);
   const estimated = current + previous * (1 - elapsed);
   const ok = estimated <= effective;
   if (!ok) {

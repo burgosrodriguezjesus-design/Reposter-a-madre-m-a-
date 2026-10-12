@@ -1,9 +1,11 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
+import { invalidateMicroCache } from "@/lib/micro-cache";
 
 /** Tras cambiar catálogo o ajustes, regenera todas las páginas públicas en caché. */
 export function revalidateSite() {
+  invalidateMicroCache();
   revalidatePath("/", "layout");
 }
 
