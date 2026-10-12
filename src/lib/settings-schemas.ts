@@ -1,0 +1,110 @@
+import { z } from "zod";
+
+const t = (max: number) => z.string().trim().max(max);
+const cents = z.number().int().min(-10_000_000).max(10_000_000);
+
+const builderOption = z.object({
+  id: t(40).min(1),
+  label: t(80).min(1, "Las opciones necesitan un nombre"),
+  priceDeltaCents: cents,
+  requiresQuote: z.boolean().optional(),
+  hex: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+});
+
+export const settingsSchemas = {
+  business: z.object({
+    name: t(80).min(2),
+    tagline: t(140),
+    description: t(400),
+    legalName: t(160),
+    taxId: t(30),
+    registryInfo: t(300),
+    sanitaryRegistry: t(80),
+    street: t(160).min(3),
+    postalCode: t(10),
+    city: t(80).min(2),
+    province: t(80),
+    neighborhood: t(80),
+    latitude: z.number().min(-90).max(90).nullable(),
+    longitude: z.number().min(-180).max(180).nullable(),
+    phone: t(30).min(6),
+    whatsapp: t(30),
+    email: z.union([z.string().trim().email(), z.literal("")]),
+    instagram: z.union([z.string().trim().url(), z.literal("")]),
+    facebook: z.union([z.string().trim().url(), z.literal("")]),
+    tiktok: z.union([z.string().trim().url(), z.literal("")]),
+    googleBusinessUrl: z.union([z.string().trim().url(), z.literal("")]),
+    googleReviewUrl: z.union([z.string().trim().url(), z.literal("")]),
+    howToGetThere: t(1500),
+    heroImageUrl: t(500),
+    heroImageAlt: t(200),
+    storePhotos: z.array(z.object({ url: t(500), alt: t(200) })).max(12),
+    foundedYear: z.number().int().min(1800).max(2100).nullable(),
+    priceRange: t(10),
+    timezone: t(60),
+  }),
+  ordering: z.object({
+    onlineOrdersEnabled: z.boolean(),
+    closedMessage: t(500),
+    minLeadHours: z.number().int().min(0).max(24 * 60),
+    maxAdvanceDays: z.number().int().min(1).max(365),
+    slotMinutes: z.number().int().min(10).max(240),
+    maxOrdersPerSlot: z.number().int().min(0).max(500),
+    maxOrdersPerDay: z.number().int().min(0).max(5000),
+    pickupEnabled: z.boolean(),
+    deliveryEnabled: z.boolean(),
+    deliveryInfo: t(500),
+    payInStoreEnabled: z.boolean(),
+    cardPaymentEnabled: z.boolean(),
+    autoAcceptStandardOrders: z.boolean(),
+    cancellationSummary: t(1000),
+    allergenNotice: t(1000),
+  }),
+  marketing: z.object({
+    announcement: t(200),
+    showDemoBanner: z.boolean(),
+    loyaltyEnabled: z.boolean(),
+    loyaltyStampEveryCents: z.number().int().min(100).max(1_000_000),
+    loyaltyStampsForReward: z.number().int().min(1).max(100),
+    loyaltyRewardCents: z.number().int().min(0).max(1_000_000),
+    giftCardsEnabled: z.boolean(),
+    giftCardAmounts: z.array(z.number().int().min(500).max(50_000)).min(1).max(10),
+    giftCardValidityMonths: z.number().int().min(1).max(60),
+    abandonedCartEnabled: z.boolean(),
+    abandonedCartDelayHours: z.number().int().min(1).max(72),
+    remindersEnabled: z.boolean(),
+    reminderDaysBefore: z.number().int().min(1).max(60),
+  }),
+  seo: z.object({
+    homeTitle: t(70),
+    homeDescription: t(170),
+    gaMeasurementId: z.union([z.string().trim().regex(/^G-[A-Z0-9]{4,}$/, "El ID de GA4 empieza por G-"), z.literal("")]),
+    googleSiteVerification: t(120),
+  }),
+  notifications: z.object({
+    adminEmail: z.union([z.string().trim().email(), z.literal("")]),
+    adminWhatsapp: t(30),
+    whatsappNotifyAdmin: z.boolean(),
+  }),
+  builder: z.object({
+    enabled: z.boolean(),
+    intro: t(600),
+    leadTimeHours: z.number().int().min(0).max(24 * 90),
+    celebrations: z.array(t(60).min(1)).min(1).max(30),
+    sizes: z.array(z.object({ id: t(40).min(1), label: t(60).min(1), servings: t(60), priceCents: z.number().int().min(0).max(10_000_000) })).min(1).max(20),
+    sponges: z.array(builderOption).min(1).max(30),
+    fillings: z.array(builderOption).min(1).max(30),
+    coverings: z.array(builderOption).min(1).max(30),
+    colors: z.array(builderOption).max(30),
+    maxColors: z.number().int().min(1).max(10),
+    decorations: z.array(builderOption).max(40),
+    textPriceCents: z.number().int().min(0).max(100_000),
+    textMaxLength: z.number().int().min(5).max(120),
+    photoReferenceEnabled: z.boolean(),
+  }),
+};
+
+export type SettingsSchemaKey = keyof typeof settingsSchemas;

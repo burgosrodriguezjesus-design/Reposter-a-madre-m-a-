@@ -1,0 +1,466 @@
+// Esquema de base de datos de la repostería.
+// Documentación: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // En Supabase usa la conexión "pooler" en DATABASE_URL y la directa aquí (migraciones).
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────── Administración ───────────────────────────
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  lastLoginAt  DateTime?
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  ip        String
+  email     String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([ip, createdAt])
+  @@index([email, createdAt])
+}
+
+/// Ajustes clave-valor (negocio, pedidos, personalizador, SEO...). Ver src/lib/settings.ts
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────── Catálogo ───────────────────────────
+
+model Category {
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  name           String
+  description    String    @default("")
+  /// Texto largo y original para la página de la categoría (SEO). Párrafos separados por línea en blanco.
+  content        String    @default("")
+  seoTitle       String?
+  seoDescription String?
+  imageUrl       String?
+  sortOrder      Int       @default(0)
+  active         Boolean   @default(true)
+  isDemo         Boolean   @default(false)
+  products       Product[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+enum ProductAvailability {
+  AVAILABLE // Disponible
+  ON_DEMAND // Solo por encargo
+  SEASONAL // De temporada
+  SOLD_OUT // Agotado / no disponible
+}
+
+model Product {
+  id                  String              @id @default(cuid())
+  slug                String              @unique
+  name                String
+  shortDescription    String              @default("")
+  description         String              @default("")
+  categoryId          String
+  category            Category            @relation(fields: [categoryId], references: [id])
+  /// Precio base en céntimos (si hay tamaños, se usa el de cada tamaño)
+  priceCents          Int
+  ingredients         String              @default("")
+  /// Alérgenos (claves del Reglamento UE 1169/2011, ver src/lib/allergens.ts)
+  allergens           String[]
+  /// Puede contener trazas de...
+  mayContain          String[]
+  occasions           String[]
+  /// Grupos de opciones de personalización: [{ id, name, required, multiple, choices: [{ id, label, priceDeltaCents }] }]
+  optionGroups        Json                @default("[]")
+  allowDedication     Boolean             @default(false)
+  allowReferencePhoto Boolean             @default(false)
+  availability        ProductAvailability @default(AVAILABLE)
+  /// Antelación mínima para encargarlo (horas)
+  leadTimeHours       Int                 @default(24)
+  maxPerOrder         Int                 @default(10)
+  featured            Boolean             @default(false)
+  isNew               Boolean             @default(false)
+  /// Refuerzo manual de popularidad (se suma a las ventas reales)
+  popularityBoost     Int                 @default(0)
+  seoTitle            String?
+  seoDescription      String?
+  active              Boolean             @default(true)
+  archived            Boolean             @default(false)
+  isDemo              Boolean             @default(false)
+  sortOrder           Int                 @default(0)
+  images              ProductImage[]
+  variants            ProductVariant[]
+  orderItems          OrderItem[]
+  reviews             Review[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([categoryId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String
+  width     Int?
+  height    Int?
+  sortOrder Int     @default(0)
+}
+
+model ProductVariant {
+  id         String  @id @default(cuid())
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name       String
+  servings   String?
+  priceCents Int
+  sortOrder  Int     @default(0)
+}
+
+// ─────────────────────────── Pedidos ───────────────────────────
+
+enum OrderStatus {
+  PENDING_PAYMENT // Esperando pago online
+  PENDING // Pendiente de aceptar
+  ACCEPTED // Aceptado
+  IN_PREPARATION // En preparación
+  READY // Listo para recoger / enviar
+  DELIVERED // Entregado
+  REJECTED // Rechazado
+  CANCELLED // Cancelado
+}
+
+enum PaymentMethod {
+  CARD
+  IN_STORE
+  GIFT_CARD
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum Fulfillment {
+  PICKUP
+  DELIVERY
+}
+
+model Order {
+  id                    String             @id @default(cuid())
+  number                String             @unique
+  /// Token secreto para consultar el pedido sin cuenta
+  accessToken           String             @unique
+  status                OrderStatus
+  paymentMethod         PaymentMethod
+  paymentStatus         PaymentStatus      @default(UNPAID)
+  fulfillment           Fulfillment
+  /// Fecha (YYYY-MM-DD) y hora (HH:MM) locales de recogida/entrega
+  scheduledDate         String
+  scheduledTime         String
+  customerName          String
+  customerEmail         String
+  customerPhone         String
+  customerId            String?
+  customer              Customer?          @relation(fields: [customerId], references: [id])
+  address               String?
+  postalCode            String?
+  city                  String?
+  deliveryZoneId        String?
+  deliveryZone          DeliveryZone?      @relation(fields: [deliveryZoneId], references: [id])
+  notes                 String?
+  subtotalCents         Int
+  discountCents         Int                @default(0)
+  deliveryFeeCents      Int                @default(0)
+  giftCardCents         Int                @default(0)
+  totalCents            Int
+  couponCode            String?
+  giftCardId            String?
+  giftCard              GiftCard?          @relation(fields: [giftCardId], references: [id])
+  stripeSessionId       String?            @unique
+  stripePaymentIntentId String?
+  /// Contiene tartas personalizadas u otros artículos que requieren revisión
+  requiresReview        Boolean            @default(false)
+  marketingConsent      Boolean            @default(false)
+  acceptedTermsAt       DateTime
+  adminNotes            String?
+  rejectionReason       String?
+  quoteRequestId        String?            @unique
+  quoteRequest          QuoteRequest?      @relation(fields: [quoteRequestId], references: [id])
+  /// Sellos de fidelización ya otorgados por este pedido
+  loyaltyAwarded        Boolean            @default(false)
+  items                 OrderItem[]
+  history               OrderStatusEvent[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([customerEmail])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id                String   @id @default(cuid())
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId         String?
+  product           Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name              String
+  variantName       String?
+  unitPriceCents    Int
+  quantity          Int
+  /// [{ group, choice, priceDeltaCents }]
+  options           Json     @default("[]")
+  dedication        String?
+  referencePhotoUrl String?
+  isCustomCake      Boolean  @default(false)
+  /// Especificación completa de la tarta personalizada
+  customSpec        Json?
+  lineTotalCents    Int
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model OrderStatusEvent {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+// ─────────────────────────── Presupuestos de tartas ───────────────────────────
+
+enum QuoteStatus {
+  NEW // Nueva solicitud
+  QUOTED // Presupuesto enviado
+  ACCEPTED // Aceptado por el cliente (se crea pedido)
+  REJECTED // Rechazado por la repostería
+  EXPIRED // Caducado / descartado
+}
+
+model QuoteRequest {
+  id                String      @id @default(cuid())
+  number            String      @unique
+  accessToken       String      @unique
+  status            QuoteStatus @default(NEW)
+  /// Opciones elegidas en el personalizador
+  spec              Json
+  estimatedCents    Int?
+  quotedCents       Int?
+  adminMessage      String?
+  customerName      String
+  customerEmail     String
+  customerPhone     String
+  desiredDate       String
+  fulfillment       Fulfillment @default(PICKUP)
+  notes             String?
+  referencePhotoUrl String?
+  order             Order?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([status])
+}
+
+// ─────────────────────────── Clientes y fidelización ───────────────────────────
+
+model Customer {
+  id                 String                @id @default(cuid())
+  email              String                @unique
+  name               String
+  phone              String?
+  marketingConsent   Boolean               @default(false)
+  marketingConsentAt DateTime?
+  loyaltyStamps      Int                   @default(0)
+  ordersCount        Int                   @default(0)
+  totalSpentCents    Int                   @default(0)
+  unsubscribeToken   String                @unique
+  orders             Order[]
+  reminders          CelebrationReminder[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+}
+
+/// Recordatorio de celebración (solo con consentimiento expreso)
+model CelebrationReminder {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label        String
+  month        Int
+  day          Int
+  consentAt    DateTime
+  lastSentYear Int?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([month, day])
+}
+
+/// Carrito guardado para recordatorio (solo si el cliente lo autoriza)
+model AbandonedCart {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  token       String    @unique
+  cart        Json
+  consentAt   DateTime
+  emailSentAt DateTime?
+  recoveredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ─────────────────────────── Calendario y reparto ───────────────────────────
+
+/// Franjas de apertura: puede haber varias por día (p. ej. mañana y tarde)
+model OpeningHour {
+  id       String @id @default(cuid())
+  /// 0 = domingo ... 6 = sábado
+  weekday  Int
+  opensAt  String
+  closesAt String
+
+  @@index([weekday])
+}
+
+/// Días bloqueados (vacaciones, festivos, días completos)
+model BlockedDate {
+  id        String   @id @default(cuid())
+  startDate String
+  endDate   String
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model DeliveryZone {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  postalCodes   String[]
+  feeCents      Int
+  minOrderCents Int      @default(0)
+  freeFromCents Int?
+  /// Texto propio sobre la zona (si es suficientemente completo, se publica una página indexable)
+  description   String   @default("")
+  active        Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  isDemo        Boolean  @default(false)
+  orders        Order[]
+}
+
+// ─────────────────────────── Marketing ───────────────────────────
+
+enum CouponType {
+  PERCENT
+  FIXED
+  FREE_DELIVERY
+}
+
+model Coupon {
+  id             String     @id @default(cuid())
+  code           String     @unique
+  description    String     @default("")
+  type           CouponType
+  /// Porcentaje (0-100) o importe en céntimos
+  value          Int
+  minOrderCents  Int        @default(0)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  maxRedemptions Int?
+  redemptions    Int        @default(0)
+  active         Boolean    @default(true)
+  isDemo         Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+}
+
+model Promotion {
+  id          String    @id @default(cuid())
+  title       String
+  description String    @default("")
+  badge       String?
+  imageUrl    String?
+  ctaLabel    String?
+  ctaHref     String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  active      Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  isDemo      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+}
+
+enum GiftCardStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  DEPLETED
+  CANCELLED
+}
+
+model GiftCard {
+  id              String         @id @default(cuid())
+  code            String         @unique
+  initialCents    Int
+  balanceCents    Int
+  status          GiftCardStatus
+  purchaserName   String
+  purchaserEmail  String
+  recipientName   String?
+  recipientEmail  String?
+  message         String?
+  paymentMethod   PaymentMethod?
+  stripeSessionId String?        @unique
+  expiresAt       DateTime?
+  orders          Order[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  HIDDEN
+}
+
+/// Opiniones enviadas por clientes. Solo se publican tras aprobarlas.
+model Review {
+  id          String       @id @default(cuid())
+  authorName  String
+  rating      Int
+  text        String
+  orderNumber String?
+  /// El número de pedido y el email coinciden con un pedido entregado
+  verified    Boolean      @default(false)
+  productId   String?
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  status      ReviewStatus @default(PENDING)
+  reply       String?
+  isDemo      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+
+  @@index([status])
+}
