@@ -22,7 +22,8 @@
     "db:check-security": "tsx scripts/check-db-security.ts",
     "db:least-privilege": "psql \"$ADMIN_DATABASE_URL\" -v ON_ERROR_STOP=1 -f prisma/sql/least-privilege.sql",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:security": "tsx scripts/security-tests.ts"
+    "test:security": "tsx scripts/security-tests.ts",
+    "test:e2e": "node tests/e2e/admin-security.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -60,6 +61,7 @@
     "autocannon": "^8.0.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.0",
+    "playwright": "^1.56.1",
     "postcss": "^8.5.29",
     "prisma": "^6.19.3",
     "tailwindcss": "^4.3.3",
