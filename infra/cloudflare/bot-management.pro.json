@@ -1,0 +1,9 @@
+{
+  "fight_mode": false,
+  "enable_js": true,
+  "sbfm_definitely_automated": "block",
+  "sbfm_verified_bots": "allow",
+  "sbfm_static_resource_protection": false,
+  "optimize_wordpress": false,
+  "ai_bots_protection": "block"
+}

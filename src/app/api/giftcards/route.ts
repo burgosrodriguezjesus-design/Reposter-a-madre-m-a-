@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { emailHash } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { giftCardPurchaseSchema, firstError } from "@/lib/validation";
 import { limitByIp } from "@/lib/rate-limit";
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
           status: "PENDING_PAYMENT",
           purchaserName: input.purchaserName,
           purchaserEmail: input.purchaserEmail,
+          purchaserEmailHash: emailHash(input.purchaserEmail),
           recipientName: input.recipientName || null,
           recipientEmail: input.recipientEmail || null,
           message: input.message || null,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { emailHash } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { secureToken } from "@/lib/ids";
 import { emailSchema } from "@/lib/validation";
@@ -25,10 +25,11 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false }, { status: 400 });
   const { email, name, lines } = parsed.data;
-  const cart = JSON.parse(JSON.stringify(lines).slice(0, 60_000)) as Prisma.InputJsonValue;
+  const cart = JSON.stringify(lines);
+  if (cart.length > 60_000) return NextResponse.json({ ok: false }, { status: 413 });
   await db.abandonedCart.upsert({
-    where: { email },
-    create: { email, name, token: secureToken(), cart, consentAt: new Date() },
+    where: { emailHash: emailHash(email) },
+    create: { email, emailHash: emailHash(email), name, token: secureToken(), cart, consentAt: new Date() },
     update: { name, cart, consentAt: new Date(), emailSentAt: null, recoveredAt: null },
   });
   return NextResponse.json({ ok: true });
@@ -36,7 +37,8 @@ export async function POST(request: Request) {
 
 /** Retira el consentimiento (al desmarcar la casilla). */
 export async function DELETE(request: Request) {
+  if (!(await limitByIp("remember", 10, 10 * 60_000))) return NextResponse.json({ ok: false }, { status: 429 });
   const email = new URL(request.url).searchParams.get("email")?.toLowerCase().trim();
-  if (email) await db.abandonedCart.deleteMany({ where: { email, recoveredAt: null } });
+  if (email) await db.abandonedCart.deleteMany({ where: { emailHash: emailHash(email), recoveredAt: null } });
   return NextResponse.json({ ok: true });
 }

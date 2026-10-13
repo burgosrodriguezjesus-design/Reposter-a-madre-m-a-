@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { MIN_ZONE_TEXT } from "@/lib/catalog";
 import { deleteZone, saveZone } from "./actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Zonas de reparto" };
 
@@ -49,6 +50,7 @@ function ZoneForm({ zone }: { zone?: DeliveryZone }) {
 }
 
 export default async function DeliveryPage() {
+  await requirePermission("delivery.manage");
   const [zones, settings] = await Promise.all([db.deliveryZone.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }), getSettings()]);
   return (
     <>

@@ -1,0 +1,86 @@
+{
+  "config": {
+    "base": "https://localhost:8443",
+    "vus": 100,
+    "durationS": 60,
+    "rampS": 10,
+    "thinkS": [
+      1,
+      3
+    ]
+  },
+  "elapsedS": 70,
+  "requests": 2355,
+  "rps": 33,
+  "networkErrors": 0,
+  "errorRate": 0,
+  "groups": {
+    "paginas": {
+      "n": 1880,
+      "ok": 1880,
+      "err": 0,
+      "p50": 9,
+      "p95": 49,
+      "p99": 107,
+      "max": 369
+    },
+    "api": {
+      "n": 436,
+      "ok": 436,
+      "err": 0,
+      "p50": 13,
+      "p95": 28,
+      "p99": 91,
+      "max": 197
+    },
+    "pedidos": {
+      "n": 39,
+      "ok": 39,
+      "err": 0,
+      "p50": 46,
+      "p95": 109,
+      "p99": 113,
+      "max": 113
+    }
+  },
+  "statuses": {
+    "paginas 200": 1880,
+    "api 200": 436,
+    "pedidos 200": 39
+  },
+  "orders": {
+    "attempted": 39,
+    "completed": 39,
+    "rejectionReasons": []
+  },
+  "integrity": {
+    "confirmedToClients": 39,
+    "distinctConfirmed": 39,
+    "inDatabase": 39,
+    "missingInDb": 0,
+    "notConfirmedButInDb": 0,
+    "duplicatedIdempotencyKeys": 0
+  },
+  "resources": {
+    "note": "% de CPU de UN núcleo (400 % = los 4 núcleos de esta máquina)",
+    "cpuPeakPct": {
+      "app": 110,
+      "nginx": 2,
+      "postgres": 7,
+      "redis": 1,
+      "pgbouncer": 5,
+      "generator": 15
+    },
+    "cpuAvgPct": {
+      "app": 71,
+      "nginx": 2,
+      "postgres": 5,
+      "redis": 1,
+      "pgbouncer": 3,
+      "generator": 10
+    },
+    "maxAppRssMb": 832,
+    "maxPgConnections": 41,
+    "maxLoadAvg": 3.35
+  }
+}

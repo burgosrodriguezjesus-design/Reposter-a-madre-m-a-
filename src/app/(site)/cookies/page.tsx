@@ -23,7 +23,11 @@ export default async function CookiesPage() {
           <strong>Preferencias de cookies</strong> («rmm-consent-v1»): recuerda tu elección.
         </li>
         <li>
-          <strong>Sesión del panel</strong> («rmm_admin»): solo para el personal de {b.name} que accede al panel de gestión.
+          <strong>Acceso a tu pedido o presupuesto</strong> («acc_o_…» y «acc_q_…»): cuando abres el enlace de tu email, guarda la llave
+          de acceso para que no quede en la dirección de la página. Solo sirve para esa página; dura 90 días.
+        </li>
+        <li>
+          <strong>Sesión del panel</strong> («__Host-rmm_admin»): solo para el personal de {b.name} que accede al panel de gestión.
         </li>
         <li>
           <strong>Pasarela de pago:</strong> Stripe puede usar cookies propias en su página de pago para prevenir el fraude.

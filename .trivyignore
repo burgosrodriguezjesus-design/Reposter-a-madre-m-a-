@@ -1,0 +1,21 @@
+# ════════════════════════════════════════════════════════════════════
+#  .trivyignore — excepciones de Trivy (fs, config e imagen en .github/workflows/security.yml).
+#
+#  Vacío a propósito: hoy no se acepta ninguna excepción.
+#
+#  Reglas para añadir una (revisión obligatoria por CODEOWNERS):
+#    - Un identificador por línea: CVE/GHSA (vulnerabilidades), AVD-/DS/KSV (configuración)
+#      o el id de la regla de secretos.
+#    - SIEMPRE con fecha de caducidad (exp:AAAA-MM-DD, máximo 90 días) y un comentario con:
+#      motivo (no explotable / sin arreglo / falso positivo), análisis, responsable y enlace.
+#    - Las vulnerabilidades sin versión corregida ya se omiten con ignore-unfixed: no las
+#      añadas aquí.
+#
+#  Ejemplos (comentados):
+#    # CVE-2026-00000: libxyz en la imagen base; la ruta vulnerable (parser XML) no se usa.
+#    # Responsable: @burgosrodriguezjesus-design · Revisado: 2026-10-12 · Enlace: <issue>
+#    # CVE-2026-00000 exp:2027-01-10
+#
+#    # KSV-0000: el CronJob de copias necesita escribir en /backups (PVC dedicado).
+#    # AVD-KSV-0000 exp:2027-01-10
+# ════════════════════════════════════════════════════════════════════

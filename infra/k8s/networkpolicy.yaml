@@ -1,0 +1,218 @@
+# NetworkPolicy: todo denegado por defecto y solo los flujos imprescindibles.
+# Requiere un CNI que aplique NetworkPolicy (Calico, Cilium, Antrea...).
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+#
+# Supuestos (ajustar a tu clúster):
+#  - ingress-nginx en el namespace "ingress-nginx" (pods app.kubernetes.io/name=ingress-nginx).
+#  - Prometheus y blackbox-exporter en el namespace "monitoring".
+#  - PgBouncer, PostgreSQL y Redis en el namespace "reposteria-data", con sus propias
+#    políticas de entrada que solo admitan tráfico desde el namespace "reposteria".
+#    Si usas servicios gestionados (Supabase, Upstash...), sustituye esos destinos
+#    por ipBlock o por la regla de salida a Internet.
+#  - CoreDNS/kube-dns en kube-system con la etiqueta k8s-app=kube-dns.
+#
+# La NetworkPolicy estándar no filtra por nombre de dominio: la salida a Stripe,
+# Supabase y SMTP se limita por puerto y excluyendo rangos privados y la IP de
+# metadatos del proveedor cloud. Para filtrar por FQDN, ver
+# optional/cilium-egress-fqdn.yaml.
+#
+# 0) Denegar todo (entrada y salida) en el namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 1) DNS para todos los pods del namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 2) Entrada a la app: desde el ingress controller, desde Prometheus/blackbox
+#    (métricas y sondas) y desde los pods de cron del propio namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - prometheus
+                  - blackbox-exporter
+      ports:
+        - protocol: TCP
+          port: 3000
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: reposteria
+              app.kubernetes.io/component: cron
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# 3) Salida de la app: PgBouncer, Redis y servicios externos (Stripe, Supabase
+#    Storage, webhook de alertas por HTTPS; SMTP por 587/465).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: reposteria-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pgbouncer
+      ports:
+        - protocol: TCP
+          port: 6432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: reposteria-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 465
+---
+# 4) Pods de cron: solo pueden hablar con la app (además de DNS).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cron-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: cron
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: reposteria
+              app.kubernetes.io/component: web
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# 5) Copias de seguridad: PostgreSQL directo (pg_dump) y almacenamiento externo
+#    por HTTPS (rclone). Nadie puede conectarse a estos pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backup-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: backup
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: reposteria-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+      ports:
+        - protocol: TCP
+          port: 443

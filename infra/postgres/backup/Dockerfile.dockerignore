@@ -1,0 +1,11 @@
+# Contexto de la imagen de copias (Dockerfile en infra/postgres/backup/, contexto = raíz del repo).
+# BuildKit usa este archivo en lugar del .dockerignore raíz. Lista blanca: solo lo imprescindible.
+*
+!scripts/backup.sh
+!scripts/restore.sh
+!infra/monitoring/backup-with-metrics.sh
+!infra/postgres/backup/entrypoint.sh
+!infra/postgres/backup/job.sh
+!infra/postgres/backup/basebackup.sh
+!infra/postgres/backup/wal-ship.sh
+!infra/postgres/backup/crontab

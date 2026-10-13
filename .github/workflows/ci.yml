@@ -1,0 +1,237 @@
+# ════════════════════════════════════════════════════════════════════
+#  CI: calidad + pruebas contra PostgreSQL real + arranque + DAST ligero.
+#
+#  Jobs:
+#    static       prisma validate, lint, tipos y tests unitarios (sin BD)
+#    integration  postgres:16 + redis → migraciones (DIRECT_URL) → datos demo → mínimo
+#                 privilegio/RLS → tests de integración → db:check-security → build →
+#                 arranque (npm start) → /api/health → npm run test:security
+#    e2e          Playwright (Chromium) contra la app compilada (siempre: un check obligatorio
+#                 no debe poder quedar en verde sin ejecutarse)
+#
+#  deploy.yml solo despliega un commit de main si este workflow (y security.yml) terminó en
+#  "success" para ese mismo SHA. Configura también "CI / *" como checks obligatorios en la
+#  protección de la rama main (Settings → Branches/Rulesets).
+#
+#  Todos los secretos que se usan aquí son de PRUEBA y se generan al vuelo
+#  (.github/actions/prepare-test-env). Este workflow no tiene acceso a secretos reales.
+#  Las acciones de terceros están fijadas por SHA de commit (comentario = versión); Dependabot
+#  (.github/dependabot.yml) propone las actualizaciones.
+# ════════════════════════════════════════════════════════════════════
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Por defecto, ningún permiso más allá de leer el código; cada job declara los suyos.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # En PR se cancela la ejecución anterior; en main se termina siempre (lo usa deploy.yml)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "22"
+  NEXT_TELEMETRY_DISABLED: "1"
+  CHECKPOINT_DISABLE: "1"
+  PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_AUDIT: "false"
+  # Contraseña del contenedor postgres de servicio (efímero, solo accesible desde el runner)
+  CI_POSTGRES_PASSWORD: postgres_ci_only
+
+jobs:
+  static:
+    name: Lint, tipos y tests unitarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # prisma validate exige que existan las variables del datasource; no se conecta.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/no_se_usa
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/no_se_usa
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias (lockfile exacto)
+        run: npm ci
+
+      - name: Validar esquema Prisma
+        run: npx --no prisma validate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Tests unitarios
+        run: npm test
+
+  integration:
+    name: Integración, build, arranque y DAST ligero
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_only # = env.CI_POSTGRES_PASSWORD (el contexto env no existe en services)
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias (lockfile exacto)
+        run: npm ci
+
+      - name: Entorno de pruebas (secretos aleatorios, migraciones, demo, mínimo privilegio)
+        uses: ./.github/actions/prepare-test-env
+        with:
+          postgres-password: ${{ env.CI_POSTGRES_PASSWORD }}
+
+      - name: Tests de integración (rol de la app + rol dueño)
+        run: npm run test:integration
+
+      - name: Comprobación de seguridad de la BD (RLS, privilegios, auditoría)
+        run: npm run db:check-security
+
+      - name: Build de producción
+        run: npm run build
+
+      - name: Arrancar la app y esperar a /api/health
+        run: bash .github/scripts/start-app.sh 3000
+
+      - name: Pruebas de seguridad DAST ligeras (entorno efímero propio)
+        env:
+          BASE_URL: http://localhost:3000
+        run: npm run test:security
+
+      - name: Detener la app
+        if: always()
+        run: bash .github/scripts/stop-app.sh
+
+      - name: Registro de la app (solo si falla; datos ficticios)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-log-integration
+          path: ${{ runner.temp }}/app.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  e2e:
+    name: E2E (Playwright, Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_only # = env.CI_POSTGRES_PASSWORD (el contexto env no existe en services)
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias (lockfile exacto)
+        run: npm ci
+
+      - name: Entorno de pruebas
+        uses: ./.github/actions/prepare-test-env
+        with:
+          postgres-password: ${{ env.CI_POSTGRES_PASSWORD }}
+
+      - name: Navegador Chromium para Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Build de producción
+        run: npm run build
+
+      - name: Arrancar la app
+        run: bash .github/scripts/start-app.sh 3000
+
+      - name: Pruebas E2E
+        env:
+          BASE_URL: http://localhost:3000
+          CI: "true"
+        run: npm run test:e2e
+
+      - name: Detener la app
+        if: always()
+        run: bash .github/scripts/stop-app.sh
+
+      - name: Informe de Playwright y registro (solo si falla)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+            ${{ runner.temp }}/app.log
+          retention-days: 7
+          if-no-files-found: ignore

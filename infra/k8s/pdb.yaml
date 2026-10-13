@@ -1,0 +1,18 @@
+# Durante mantenimientos voluntarios (drain de nodos, actualizaciones del clúster)
+# siempre quedan al menos 2 pods de la app sirviendo tráfico.
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reposteria-app
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+spec:
+  minAvailable: 2
+  # Permite desalojar pods que ya no están Ready (p. ej. atascados) sin bloquear el drain.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: web

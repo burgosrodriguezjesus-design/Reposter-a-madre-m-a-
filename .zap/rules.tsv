@@ -1,0 +1,64 @@
+# Configuración de OWASP ZAP baseline (.github/workflows/security.yml, job zap-baseline).
+# Formato: id_regla<TAB>IGNORE|INFO|WARN|FAIL<TAB>(nombre). Las reglas no listadas valen WARN.
+# Con -I solo las FAIL rompen el CI. Objetivo: app efímera en http://localhost:3000 (APP_ENV=staging).
+# Cada IGNORE/INFO lleva su motivo. Revisa esta lista si cambia la arquitectura (CDN, proxy, HTTPS).
+#
+# ── Cabeceras de seguridad que la app SIEMPRE envía (next.config.ts + src/proxy.ts): fallo si faltan ──
+10020	FAIL	(Anti-clickjacking Header)
+10021	FAIL	(X-Content-Type-Options Header Missing)
+10038	FAIL	(Content Security Policy (CSP) Header Not Set)
+10063	FAIL	(Permissions Policy Header Not Set)
+10037	FAIL	(Server Leaks Information via X-Powered-By)
+10036	FAIL	(Server Leaks Version Information via Server)
+10039	FAIL	(X-Backend-Server Header Information Leak)
+10052	FAIL	(X-ChromeLogger-Data Header Information Leak)
+10056	FAIL	(X-Debug-Token Information Leak)
+10061	FAIL	(X-AspNet-Version Response Header)
+# ── Fugas de información y contenido inseguro: fallo ──
+10023	FAIL	(Information Disclosure - Debug Error Messages)
+90022	FAIL	(Application Error Disclosure)
+10062	FAIL	(PII Disclosure)
+10099	FAIL	(Source Code Disclosure)
+10009	FAIL	(In Page Banner Information Leak)
+10040	FAIL	(Secure Pages Include Mixed Content)
+10003	FAIL	(Vulnerable JS Library)
+10105	FAIL	(Weak Authentication Method)
+10054	FAIL	(Cookie without SameSite Attribute)
+# ── Revisar a mano (pueden ser legítimos según el contexto) ──
+10010	WARN	(Cookie No HttpOnly Flag) Las cookies de sesión y de acceso a pedidos son HttpOnly (el consentimiento va en localStorage); si aparece, revisar qué cookie es.
+10011	WARN	(Cookie Without Secure Flag) En CI se sirve por http://localhost; en producción todo es HTTPS y las de sesión usan __Host-.
+90033	WARN	(Loosely Scoped Cookie)
+10055	WARN	(CSP) Concesiones conocidas: style-src 'unsafe-inline' y, en páginas estáticas/ISR que no pueden llevar nonce, script-src 'unsafe-inline'. Las páginas con datos personales o credenciales usan nonce (src/proxy.ts).
+10017	WARN	(Cross-Domain JavaScript Source File Inclusion) Stripe.js y mapas se cargan de sus dominios oficiales.
+10098	WARN	(Cross-Domain Misconfiguration)
+10202	WARN	(Absence of Anti-CSRF Tokens) Los formularios usan Server Actions de Next (comprobación de Origin) y src/proxy.ts valida Origin/Sec-Fetch-Site; ZAP solo reconoce tokens en campos ocultos.
+10031	WARN	(User Controllable HTML Element Attribute (Potential XSS))
+10043	WARN	(User Controllable JavaScript Event (XSS))
+10030	WARN	(User Controllable Charset)
+10029	WARN	(Cookie Poisoning)
+10024	WARN	(Information Disclosure - Sensitive Information in URL) Los enlaces de seguimiento de pedido canjean el token por una cookie y redirigen (src/proxy.ts).
+10025	WARN	(Information Disclosure - Sensitive Information in HTTP Referrer Header)
+10097	WARN	(Hash Disclosure)
+10057	WARN	(Username Hash Found)
+10044	WARN	(Big Redirect Detected (Potential Sensitive Information Leak))
+10108	WARN	(Reverse Tabnabbing)
+10019	WARN	(Content-Type Header Missing)
+10026	WARN	(HTTP Parameter Override)
+2	WARN	(Private IP Disclosure)
+3	WARN	(Session ID in URL Rewrite)
+90004	WARN	(Insufficient Site Isolation Against Spectre Vulnerability) COEP require-corp rompería Stripe y las imágenes externas; COOP same-origin y CORP same-site sí se envían.
+# ── Falsos positivos o informativos en una app Next.js (se ignoran) ──
+10035	IGNORE	(Strict-Transport-Security Header Not Set) La app solo envía HSTS cuando NEXT_PUBLIC_SITE_URL es https://; en CI es http://localhost. npm run test:security lo verifica contra staging/producción.
+10106	IGNORE	(HTTP Only Site) Entorno efímero de CI sin TLS; en producción TLS lo termina Vercel/el proxy.
+10096	IGNORE	(Timestamp Disclosure - Unix) Números de los bundles de Next/React (ids de módulo, build ids) interpretados como fechas.
+10027	IGNORE	(Information Disclosure - Suspicious Comments) Palabras como 'select', 'from', 'todo' o 'debug' dentro del JavaScript minificado de Next/React.
+10110	IGNORE	(Dangerous JS Functions) Nombres como eval/setTimeout en el runtime minificado de React/Next; el CSP con nonce y sin 'unsafe-eval' lo mitiga.
+10094	IGNORE	(Base64 Disclosure) Cargas útiles RSC y hashes de recursos de Next en base64, sin secretos.
+10109	IGNORE	(Modern Web Application) Informativo: indica que la araña AJAX podría encontrar más rutas.
+10111	IGNORE	(Authentication Request Identified) Informativo (formulario de /admin/login).
+10112	IGNORE	(Session Management Response Identified) Informativo.
+10049	IGNORE	(Storable and Cacheable Content / Non-Storable Content) Informativo; la caché se controla con Cache-Control por ruta.
+10050	IGNORE	(Retrieved from Cache) Sin CDN en el entorno de CI.
+10015	INFO	(Re-examine Cache-control Directives) Páginas públicas con caché ISR a propósito; las privadas usan no-store.
+90011	INFO	(Charset Mismatch)
+10104	IGNORE	(User Agent Fuzzer) Regla activa: no aplica a un escaneo baseline pasivo.

@@ -1,0 +1,93 @@
+{
+  "config": {
+    "base": "https://localhost:8443",
+    "vus": 5000,
+    "durationS": 90,
+    "rampS": 60,
+    "thinkS": [
+      1,
+      3
+    ]
+  },
+  "elapsedS": 133,
+  "requests": 48835,
+  "rps": 367,
+  "networkErrors": 4980,
+  "errorRate": 0.5296,
+  "groups": {
+    "paginas": {
+      "n": 38695,
+      "ok": 18116,
+      "err": 20579,
+      "p50": 510,
+      "p95": 16886,
+      "p99": 19268,
+      "max": 20146
+    },
+    "api": {
+      "n": 9688,
+      "ok": 4584,
+      "err": 5104,
+      "p50": 447,
+      "p95": 16423,
+      "p99": 19237,
+      "max": 20147
+    },
+    "pedidos": {
+      "n": 452,
+      "ok": 274,
+      "err": 178,
+      "p50": 1848,
+      "p95": 15108,
+      "p99": 17057,
+      "max": 18751
+    }
+  },
+  "statuses": {
+    "paginas 200": 18116,
+    "api 200": 4584,
+    "pedidos 200": 274,
+    "paginas 0": 3971,
+    "api 0": 970,
+    "pedidos 0": 39,
+    "paginas 502": 16608,
+    "api 502": 4134,
+    "pedidos 502": 138,
+    "pedidos 429": 1
+  },
+  "orders": {
+    "attempted": 350,
+    "completed": 274,
+    "rejectionReasons": []
+  },
+  "integrity": {
+    "confirmedToClients": 274,
+    "distinctConfirmed": 274,
+    "inDatabase": 275,
+    "missingInDb": 0,
+    "notConfirmedButInDb": 1,
+    "duplicatedIdempotencyKeys": 0
+  },
+  "resources": {
+    "note": "% de CPU de UN núcleo (400 % = los 4 núcleos de esta máquina)",
+    "cpuPeakPct": {
+      "app": 273,
+      "nginx": 41,
+      "postgres": 32,
+      "redis": 2,
+      "pgbouncer": 17,
+      "generator": 100
+    },
+    "cpuAvgPct": {
+      "app": 225,
+      "nginx": 15,
+      "postgres": 22,
+      "redis": 2,
+      "pgbouncer": 12,
+      "generator": 56
+    },
+    "maxAppRssMb": 1583,
+    "maxPgConnections": 41,
+    "maxLoadAvg": 7.5
+  }
+}

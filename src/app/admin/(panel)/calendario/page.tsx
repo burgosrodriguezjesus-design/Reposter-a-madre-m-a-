@@ -11,6 +11,8 @@ import { getCalendar } from "@/lib/availability";
 import { formatLocalDate } from "@/lib/format";
 import { HoursEditor } from "./HoursEditor";
 import { addBlockedDate, removeBlockedDate } from "./actions";
+import { requirePermission } from "@/lib/auth";
+import { can } from "@/lib/rbac";
 
 export const metadata = { title: "Calendario y horario" };
 
@@ -23,6 +25,7 @@ const CAPACITY_FIELDS: FieldDef[] = [
 ];
 
 export default async function CalendarPage() {
+  const admin = await requirePermission("calendar.view");
   const [settings, hours, blocked, ctx] = await Promise.all([
     getSettings(),
     db.openingHour.findMany({ orderBy: [{ weekday: "asc" }, { opensAt: "asc" }] }),
@@ -31,6 +34,7 @@ export default async function CalendarPage() {
   ]);
   const days = getCalendar({ ...ctx, leadHours: 0 }, 20);
   const o = settings.ordering;
+  const manage = can(admin.role, "calendar.manage");
 
   return (
     <>
@@ -67,12 +71,17 @@ export default async function CalendarPage() {
             </ul>
           </Card>
 
-          <Card title="Horario de apertura y recogida">
-            <HoursEditor initial={hours.map((h) => ({ weekday: h.weekday, opensAt: h.opensAt, closesAt: h.closesAt }))} />
-          </Card>
+          {manage && (
+            <Card title="Horario de apertura y recogida">
+              <HoursEditor initial={hours.map((h) => ({ weekday: h.weekday, opensAt: h.opensAt, closesAt: h.closesAt }))} />
+            </Card>
+          )}
         </div>
 
         <div className="min-w-0 space-y-6">
+          {!manage && <p className="rounded-xl bg-cream-50 p-4 text-sm text-cocoa-600">Solo el encargado o el propietario pueden cambiar el horario y la capacidad.</p>}
+          {manage && (
+          <>
           <Card title="Vacaciones y días bloqueados">
             <ul className="mb-4 space-y-2">
               {blocked.length === 0 && <li className="text-sm text-cocoa-500">No hay días bloqueados.</li>}
@@ -111,6 +120,8 @@ export default async function CalendarPage() {
           <Card title="Capacidad y antelación">
             <SettingsForm section="ordering" fields={CAPACITY_FIELDS} initial={Object.fromEntries(CAPACITY_FIELDS.map((f) => [f.name, o[f.name as keyof typeof o]]))} />
           </Card>
+          </>
+          )}
         </div>
       </div>
     </>

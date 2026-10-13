@@ -1,0 +1,63 @@
+{
+  "description": "Conjuntos gestionados del WAF (fase http_request_firewall_managed). Requiere plan Pro o superior; en Free solo existe el Free Managed Ruleset, que se despliega solo.",
+  "rules": [
+    {
+      "ref": "rp_owasp_skip_stripe",
+      "description": "Excepción: el webhook de Stripe (JSON firmado) desde IPs de Stripe no pasa por OWASP CRS, que genera falsos positivos. El Cloudflare Managed Ruleset sí se aplica",
+      "expression": "(http.request.uri.path eq \"/api/stripe/webhook\" and ip.src in $stripe_webhooks)",
+      "action": "skip",
+      "action_parameters": {
+        "rulesets": [
+          "4814384a9e5d4991b9815dcfc25d2f1f"
+        ]
+      },
+      "logging": {
+        "enabled": true
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_cf_managed",
+      "description": "Cloudflare Managed Ruleset (vulnerabilidades conocidas, CVE)",
+      "expression": "true",
+      "action": "execute",
+      "action_parameters": {
+        "id": "efb7b8c949ac4650a09736fc376e9aee"
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_owasp_crs",
+      "description": "Cloudflare OWASP Core Ruleset: paranoia PL1 (menos falsos positivos), bloquear con puntuación de anomalía >= 40 (umbral medio). Empezar con action=log una semana",
+      "expression": "true",
+      "action": "execute",
+      "action_parameters": {
+        "id": "4814384a9e5d4991b9815dcfc25d2f1f",
+        "overrides": {
+          "categories": [
+            {
+              "category": "paranoia-level-2",
+              "enabled": false
+            },
+            {
+              "category": "paranoia-level-3",
+              "enabled": false
+            },
+            {
+              "category": "paranoia-level-4",
+              "enabled": false
+            }
+          ],
+          "rules": [
+            {
+              "id": "6179ae15870a4bb7b2d480d4843b323c",
+              "action": "block",
+              "score_threshold": 40
+            }
+          ]
+        }
+      },
+      "enabled": true
+    }
+  ]
+}

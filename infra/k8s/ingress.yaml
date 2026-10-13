@@ -1,0 +1,261 @@
+# Ingress para ingress-nginx con TLS (cert-manager) y límites de peticiones.
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+#
+# AVISO: el proyecto comunitario ingress-nginx está retirado (mantenimiento de mejor
+# esfuerzo solo hasta marzo de 2026). Estas anotaciones son específicas de ingress-nginx;
+# para clústeres nuevos valora Gateway API con una implementación mantenida
+# (ver README.md). Mantén el controlador actualizado y sin "snippets" habilitados.
+#
+# Se usan varios objetos Ingress para el mismo host: ingress-nginx los fusiona y
+# aplica las anotaciones de cada uno solo a sus rutas. Así cada grupo de rutas
+# tiene su propio límite por IP (zona limit_req propia).
+#
+# Los límites de ingress-nginx son por IP de cliente y por réplica del
+# controlador (no globales): son una primera barrera. La app aplica además su
+# propio rate limit en Redis (global entre réplicas).
+#
+# 1) Sitio general
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reposteria-web
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+  annotations:
+    # cert-manager emite y renueva el certificado (solo en este Ingress para no
+    # crear dos Certificate sobre el mismo Secret).
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # www.reposteria.example.com -> reposteria.example.com
+    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
+    # Coincide con serverActions.bodySizeLimit (12 MB) de next.config
+    nginx.ingress.kubernetes.io/proxy-body-size: "12m"
+    # Next.js envía cabeceras grandes (CSP, cookies): evita "upstream sent too big header"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Límite general por IP: 20 req/s con ráfaga x5, 50 conexiones simultáneas.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    # WAF ModSecurity + OWASP CRS del controlador. Empieza en DetectionOnly (valor por
+    # defecto) y pasa a "SecRuleEngine On" en el ConfigMap del controlador tras revisar
+    # falsos positivos en los logs.
+    nginx.ingress.kubernetes.io/enable-modsecurity: "true"
+    nginx.ingress.kubernetes.io/enable-owasp-core-rules: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - reposteria.example.com
+        - www.reposteria.example.com
+      secretName: reposteria-tls
+  rules:
+    - host: reposteria.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+---
+# 2) Inicio de sesión del panel: muy restrictivo (10 req/min por IP, sin ráfaga extra).
+#    Cuenta también el GET de la página; la app añade bloqueo progresivo en BD/Redis.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reposteria-admin-login
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/limit-rpm: "10"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "1"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+    nginx.ingress.kubernetes.io/enable-modsecurity: "true"
+    nginx.ingress.kubernetes.io/enable-owasp-core-rules: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - reposteria.example.com
+      secretName: reposteria-tls
+  rules:
+    - host: reposteria.example.com
+      http:
+        paths:
+          - path: /admin/login
+            pathType: Exact
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+---
+# 3) Formularios y APIs públicas que crean datos o cuestan dinero/CPU:
+#    pedidos, checkout, subidas, presupuestos, opiniones, tarjetas regalo, carrito.
+#    30 req/min por IP (ráfaga x2) compartidos entre estas rutas.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reposteria-public-forms
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "12m"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rpm: "30"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    nginx.ingress.kubernetes.io/enable-modsecurity: "true"
+    nginx.ingress.kubernetes.io/enable-owasp-core-rules: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - reposteria.example.com
+      secretName: reposteria-tls
+  rules:
+    - host: reposteria.example.com
+      http:
+        paths:
+          - path: /api/orders
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/checkout
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/uploads
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/quotes
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/reviews
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/giftcards
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/cart
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+---
+# 4) Webhook de Stripe: sin ModSecurity (el cuerpo JSON firmado debe llegar intacto
+#    y el CRS genera falsos positivos); la firma se verifica en la app.
+#    Opcional: restringir a las IPs publicadas por Stripe con allowlist-source-range
+#    (https://stripe.com/files/ips/ips_webhooks.txt), revisándolas cuando Stripe avise.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reposteria-stripe-webhook
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - reposteria.example.com
+      secretName: reposteria-tls
+  rules:
+    - host: reposteria.example.com
+      http:
+        paths:
+          - path: /api/stripe/webhook
+            pathType: Exact
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+---
+# 5) Rutas internas que NO deben ser accesibles desde Internet: métricas y cron.
+#    Prometheus y los CronJobs llaman directamente al Service dentro del clúster,
+#    así que en el ingress se deniegan a todo el mundo (403).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: reposteria-internal-only
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: web
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Solo loopback del controlador = nadie desde fuera. "allowlist-source-range" es el
+    # nombre actual; "whitelist-source-range" (obsoleto) se mantiene para controladores
+    # antiguos que no conocen el nuevo. Ambos con el mismo valor.
+    nginx.ingress.kubernetes.io/allowlist-source-range: "127.0.0.1/32"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "127.0.0.1/32"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - reposteria.example.com
+      secretName: reposteria-tls
+  rules:
+    - host: reposteria.example.com
+      http:
+        paths:
+          - path: /api/metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http
+          - path: /api/cron
+            pathType: Prefix
+            backend:
+              service:
+                name: reposteria-app
+                port:
+                  name: http

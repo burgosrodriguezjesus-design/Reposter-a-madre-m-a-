@@ -1,0 +1,141 @@
+# ════════════════════════════════════════════════════════════════════
+#  Acción compuesta: entorno de pruebas EFÍMERO con datos ficticios.
+#
+#  Requisitos del job que la usa:
+#    - servicio postgres:16 en localhost:5432 (usuario "postgres", contraseña en
+#      inputs.postgres-password) y, opcionalmente, redis en localhost:6379;
+#    - "npm ci" ya ejecutado (usa el CLI de Prisma y tsx del proyecto).
+#
+#  Qué hace:
+#    1. Genera secretos de prueba ALEATORIOS en cada ejecución (claves AES-256-GCM, clave HMAC
+#       de índices ciegos, CRON_SECRET, METRICS_TOKEN, contraseñas de roles) y los enmascara en
+#       los registros. Nunca se usan secretos reales en CI.
+#    2. Crea la BD "reposteria_test" con un rol dueño (reposteria_owner) para migraciones.
+#    3. prisma migrate deploy con DIRECT_URL (dueño) + datos de demostración (seed).
+#    4. Aplica prisma/sql/least-privilege.sql (rol reposteria_app sin DDL + RLS) y deja
+#       DATABASE_URL apuntando al rol de mínimo privilegio, como en producción.
+#  Exporta todo a $GITHUB_ENV para los pasos siguientes del job.
+# ════════════════════════════════════════════════════════════════════
+name: Preparar entorno de pruebas efímero
+description: Secretos de prueba aleatorios + PostgreSQL migrado, con datos de demo y mínimo privilegio.
+inputs:
+  postgres-password:
+    description: Contraseña del superusuario "postgres" del contenedor de servicio (solo CI).
+    required: true
+  database:
+    description: Nombre de la base de datos de pruebas (debe contener "test").
+    required: false
+    default: reposteria_test
+  seed:
+    description: '"true" para cargar datos de demostración (npx prisma db seed).'
+    required: false
+    default: "true"
+  redis-url:
+    description: URL de Redis (vacía para no usarlo).
+    required: false
+    default: redis://localhost:6379/0
+runs:
+  using: composite
+  steps:
+    - name: Cliente de PostgreSQL
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v psql >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client
+        fi
+        psql --version
+
+    - name: Secretos de prueba aleatorios (enmascarados)
+      shell: bash
+      env:
+        DB_NAME: ${{ inputs.database }}
+        REDIS_URL_INPUT: ${{ inputs.redis-url }}
+      run: |
+        set -euo pipefail
+        case "$DB_NAME" in *test*) ;; *) echo "::error::La BD de CI debe contener 'test' en el nombre"; exit 1 ;; esac
+        b64() { openssl rand -base64 32; }
+        hex() { openssl rand -hex 32; }
+        K1="$(b64)"; K2="$(b64)"; HASH_KEY="$(b64)"; SA_KEY="$(b64)"
+        CRON="$(hex)"; METRICS="$(hex)"
+        OWNER_PW="$(openssl rand -hex 24)"; APP_PW="$(openssl rand -hex 24)"
+        ADMIN_PW="Ci-$(openssl rand -hex 16)-Pw!"
+        WEBHOOK="whsec_$(openssl rand -hex 24)"
+        for s in "$K1" "$K2" "$HASH_KEY" "$SA_KEY" "$CRON" "$METRICS" "$OWNER_PW" "$APP_PW" "$ADMIN_PW" "$WEBHOOK"; do
+          echo "::add-mask::$s"
+        done
+        {
+          echo "APP_ENV=staging"
+          echo "NEXT_PUBLIC_SITE_URL=http://localhost:3000"
+          echo "DATA_ENCRYPTION_KEYS=kci1:${K1},kci2:${K2}"
+          echo "DATA_ENCRYPTION_ACTIVE_KEY=kci2"
+          echo "DATA_HASH_KEY=${HASH_KEY}"
+          echo "CRON_SECRET=${CRON}"
+          echo "METRICS_TOKEN=${METRICS}"
+          echo "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${SA_KEY}"
+          # Stripe en modo prueba sin red: solo se ejercita la verificación de firmas del webhook
+          echo "STRIPE_SECRET_KEY=sk_test_ci_sin_red"
+          echo "STRIPE_WEBHOOK_SECRET=${WEBHOOK}"
+          echo "TRUST_PROXY=none"
+          echo "REDIS_URL=${REDIS_URL_INPUT}"
+          echo "STORAGE_DRIVER=local"
+          echo "UPLOAD_DIR=${RUNNER_TEMP}/uploads"
+          echo "PASSWORD_BREACH_CHECK=false"
+          echo "ADMIN_EMAIL=ci-owner@example.com"
+          echo "ADMIN_PASSWORD=${ADMIN_PW}"
+          echo "ADMIN_SESSION_IDLE_MINUTES=60"
+          echo "ADMIN_SESSION_MAX_HOURS=12"
+          echo "LOG_LEVEL=warn"
+          echo "CI_DB_NAME=${DB_NAME}"
+          echo "CI_OWNER_URL=postgresql://reposteria_owner:${OWNER_PW}@localhost:5432/${DB_NAME}?schema=public"
+          echo "CI_APP_URL=postgresql://reposteria_app:${APP_PW}@localhost:5432/${DB_NAME}?schema=public&connection_limit=10"
+          echo "CI_APP_PW=${APP_PW}"
+          echo "CI_OWNER_PW=${OWNER_PW}"
+        } >> "$GITHUB_ENV"
+        mkdir -p "${RUNNER_TEMP}/uploads"
+
+    - name: Base de datos y rol dueño
+      shell: bash
+      env:
+        PGHOST: localhost
+        PGPORT: "5432"
+        PGUSER: postgres
+        PGPASSWORD: ${{ inputs.postgres-password }}
+      run: |
+        set -euo pipefail
+        for _ in $(seq 1 30); do pg_isready -q && break; sleep 2; done
+        psql -v ON_ERROR_STOP=1 -d postgres \
+          -v owner_pw="$CI_OWNER_PW" -v db="$CI_DB_NAME" <<'SQL'
+        CREATE ROLE reposteria_owner LOGIN PASSWORD :'owner_pw' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        CREATE DATABASE :"db" OWNER reposteria_owner;
+        SQL
+
+    - name: Migraciones (DIRECT_URL, rol dueño)
+      shell: bash
+      run: |
+        set -euo pipefail
+        DATABASE_URL="$CI_OWNER_URL" DIRECT_URL="$CI_OWNER_URL" npx --no prisma migrate deploy
+
+    - name: Datos de demostración
+      if: inputs.seed == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        DATABASE_URL="$CI_OWNER_URL" DIRECT_URL="$CI_OWNER_URL" npx --no prisma db seed
+
+    - name: Mínimo privilegio + RLS (prisma/sql/least-privilege.sql)
+      shell: bash
+      env:
+        PGPASSWORD_ADMIN: ${{ inputs.postgres-password }}
+      run: |
+        set -euo pipefail
+        export ADMIN_DATABASE_URL="postgresql://postgres:${PGPASSWORD_ADMIN}@localhost:5432/${CI_DB_NAME}"
+        npm run --silent db:least-privilege
+        psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -v app_pw="$CI_APP_PW" <<'SQL'
+        ALTER ROLE reposteria_app LOGIN PASSWORD :'app_pw';
+        SQL
+        {
+          echo "DATABASE_URL=${CI_APP_URL}"
+          echo "DIRECT_URL=${CI_OWNER_URL}"
+        } >> "$GITHUB_ENV"

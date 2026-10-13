@@ -1,0 +1,32 @@
+{
+  "items": [
+    { "id": "ssl", "value": "strict" },
+    { "id": "min_tls_version", "value": "1.2" },
+    { "id": "tls_1_3", "value": "on" },
+    { "id": "0rtt", "value": "off" },
+    { "id": "always_use_https", "value": "on" },
+    { "id": "automatic_https_rewrites", "value": "on" },
+    { "id": "opportunistic_encryption", "value": "on" },
+    {
+      "id": "security_header",
+      "value": {
+        "strict_transport_security": {
+          "enabled": true,
+          "max_age": 63072000,
+          "include_subdomains": true,
+          "preload": false,
+          "nosniff": true
+        }
+      }
+    },
+    { "id": "tls_client_auth", "value": "on" },
+    { "id": "security_level", "value": "medium" },
+    { "id": "browser_check", "value": "on" },
+    { "id": "email_obfuscation", "value": "off" },
+    { "id": "rocket_loader", "value": "off" },
+    { "id": "server_side_exclude", "value": "off" },
+    { "id": "always_online", "value": "off" },
+    { "id": "ip_geolocation", "value": "on" },
+    { "id": "http3", "value": "on" }
+  ]
+}

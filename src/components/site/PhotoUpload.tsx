@@ -18,6 +18,8 @@ export function PhotoUpload({
   const id = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Las fotos de clientes son privadas: solo se ven con un enlace firmado temporal
+  const [preview, setPreview] = useState<string | null>(null);
 
   async function upload(file: File) {
     setBusy(true);
@@ -26,8 +28,9 @@ export function PhotoUpload({
       const body = new FormData();
       body.append("file", file);
       const res = await fetch("/api/uploads", { method: "POST", body });
-      const data = (await res.json()) as { url?: string; error?: string };
+      const data = (await res.json()) as { url?: string; previewUrl?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error || "No se pudo subir la imagen");
+      setPreview(data.previewUrl ?? null);
       onChange(data.url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo subir la imagen");
@@ -41,10 +44,24 @@ export function PhotoUpload({
       <span className="label">{label}</span>
       {value ? (
         <div className="flex items-center gap-3 rounded-2xl border border-sand-300 bg-white p-2 pr-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt="Foto de referencia subida" className="size-16 rounded-xl object-cover" />
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt="Foto de referencia subida" className="size-16 rounded-xl object-cover" />
+          ) : (
+            <span className="flex size-16 items-center justify-center rounded-xl bg-cream-100">
+              <ImagePlus className="size-6 text-blush-600" />
+            </span>
+          )}
           <span className="flex-1 text-sm text-cocoa-700">Foto añadida</span>
-          <button type="button" onClick={() => onChange(undefined)} className="btn-ghost btn-sm" aria-label="Quitar foto">
+          <button
+            type="button"
+            onClick={() => {
+              setPreview(null);
+              onChange(undefined);
+            }}
+            className="btn-ghost btn-sm"
+            aria-label="Quitar foto"
+          >
             <X className="size-4" /> Quitar
           </button>
         </div>

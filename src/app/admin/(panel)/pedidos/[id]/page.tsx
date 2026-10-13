@@ -11,10 +11,13 @@ import { NEXT_STATUSES, ORDER_STATUS, PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL
 import { formatDateTime, formatLocalDate, formatPrice, telLink, whatsappLink } from "@/lib/format";
 import { StatusPanel } from "./StatusPanel";
 import { markOrderAsPaid, saveAdminNotes } from "../actions";
+import { auditAdmin, requirePermission } from "@/lib/auth";
+import { signedMediaUrl } from "@/lib/storage";
 
 export const metadata = { title: "Pedido" };
 
 export default async function OrderDetailPage({ params }: PageProps<"/admin/pedidos/[id]">) {
+  const admin = await requirePermission("orders.view");
   const { id } = await params;
   const [order, settings] = await Promise.all([
     db.order.findUnique({
@@ -24,6 +27,8 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/pedi
     getSettings(),
   ]);
   if (!order) notFound();
+  // Acceso a datos personales: queda registrado
+  await auditAdmin(admin, { action: "order.view", entity: "Order", entityId: order.id });
   const status = ORDER_STATUS[order.status];
   const firstName = order.customerName.split(" ")[0];
   const waText = `Hola ${firstName}, te escribimos de ${settings.business.name} sobre tu pedido ${order.number} para el ${formatLocalDate(order.scheduledDate)} a las ${order.scheduledTime}. `;
@@ -85,10 +90,10 @@ export default async function OrderDetailPage({ params }: PageProps<"/admin/pedi
                         <li className="font-medium text-blush-800">Dedicatoria / texto: «{item.dedication}»</li>
                       )}
                     </ul>
-                    {item.referencePhotoUrl && (
-                      <a href={item.referencePhotoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block">
+                    {signedMediaUrl(item.referencePhotoUrl) && (
+                      <a href={signedMediaUrl(item.referencePhotoUrl)!} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.referencePhotoUrl} alt="Foto de referencia del cliente" className="h-32 rounded-xl border border-sand-300 object-cover" />
+                        <img src={signedMediaUrl(item.referencePhotoUrl)!} alt="Foto de referencia del cliente" className="h-32 rounded-xl border border-sand-300 object-cover" />
                       </a>
                     )}
                   </li>

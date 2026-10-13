@@ -1,0 +1,47 @@
+# ════════════════════════════════════════════════════════════════════
+#  CODEOWNERS (EJEMPLO): quién debe aprobar los cambios de cada zona.
+#  Actívalo con la protección de main: "Require review from Code Owners".
+#  Sustituye los equipos de ejemplo (@org/equipo) por usuarios o equipos reales de GitHub;
+#  un propietario inexistente invalida la línea. La última coincidencia gana.
+# ════════════════════════════════════════════════════════════════════
+
+# Por defecto: mantenedor del repositorio
+*                                   @burgosrodriguezjesus-design
+
+# ── Seguridad: criptografía, autenticación, sesiones, permisos, auditoría ──
+/src/lib/crypto.ts                  @burgosrodriguezjesus-design
+/src/lib/db.ts                      @burgosrodriguezjesus-design
+/src/lib/auth.ts                    @burgosrodriguezjesus-design
+/src/lib/session.ts                 @burgosrodriguezjesus-design
+/src/lib/mfa.ts                     @burgosrodriguezjesus-design
+/src/lib/rbac.ts                    @burgosrodriguezjesus-design
+/src/lib/audit.ts                   @burgosrodriguezjesus-design
+/src/lib/env.ts                     @burgosrodriguezjesus-design
+/src/proxy.ts                       @burgosrodriguezjesus-design
+/src/app/admin/login/               @burgosrodriguezjesus-design
+
+# ── Pagos y pedidos ──
+/src/lib/checkout.ts                @burgosrodriguezjesus-design
+/src/app/api/stripe/                @burgosrodriguezjesus-design
+
+# ── Base de datos: esquema, migraciones, mínimo privilegio ──
+/prisma/                            @burgosrodriguezjesus-design
+
+# ── Infraestructura, CI/CD y políticas de seguridad ──
+/.github/                           @burgosrodriguezjesus-design
+/.semgrep/                          @burgosrodriguezjesus-design
+/.zap/                              @burgosrodriguezjesus-design
+/.gitleaks.toml                     @burgosrodriguezjesus-design
+/.trivyignore                       @burgosrodriguezjesus-design
+/osv-scanner.toml                   @burgosrodriguezjesus-design
+/SECURITY.md                        @burgosrodriguezjesus-design
+/Dockerfile                         @burgosrodriguezjesus-design
+/docker-compose*.yml                @burgosrodriguezjesus-design
+/infra/                             @burgosrodriguezjesus-design
+/scripts/                           @burgosrodriguezjesus-design
+/package.json                       @burgosrodriguezjesus-design
+/package-lock.json                  @burgosrodriguezjesus-design
+
+# Ejemplo con equipos (organización de GitHub):
+# /src/lib/crypto.ts                @reposteria/seguridad
+# /infra/                           @reposteria/plataforma

@@ -4,10 +4,12 @@ import { Badge, Empty, PageHeader, Tabs } from "@/components/admin/ui";
 import { db } from "@/lib/db";
 import { QUOTE_STATUS } from "@/lib/order-status";
 import { formatLocalDate, formatPrice } from "@/lib/format";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Presupuestos" };
 
 export default async function QuotesPage({ searchParams }: PageProps<"/admin/presupuestos">) {
+  await requirePermission("quotes.manage");
   const { estado } = await searchParams;
   const status = (Object.keys(QUOTE_STATUS) as QuoteStatus[]).includes(estado as QuoteStatus) ? (estado as QuoteStatus) : undefined;
   const [quotes, newCount] = await Promise.all([

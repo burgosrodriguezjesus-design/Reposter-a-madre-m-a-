@@ -1,0 +1,13 @@
+# ════════════════════════════════════════════════════════════════════
+#  Tareas programadas de la app (supercronic; usuario "scheduler" sin privilegios)
+# ════════════════════════════════════════════════════════════════════
+#  Horas en UTC (el contenedor no tiene zona horaria). 03:17 UTC = 04:17/05:17 en la España
+#  peninsular (invierno/verano): fuera del horario de pedidos.
+#  Formato: minuto hora día-mes mes día-semana orden
+# ════════════════════════════════════════════════════════════════════
+
+# Cola de trabajos (emails/notificaciones con reintentos) y conciliación de pagos: cada minuto
+* * * * * /usr/local/bin/run-job.sh jobs /api/cron/jobs 55
+
+# Tareas diarias: retención RGPD, recordatorios, limpieza
+17 3 * * * /usr/local/bin/run-job.sh daily /api/cron 600

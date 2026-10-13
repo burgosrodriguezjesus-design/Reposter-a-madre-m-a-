@@ -3,10 +3,12 @@ import { Card, PageHeader } from "@/components/admin/ui";
 import { DemoBadge } from "@/components/site/ui";
 import { db } from "@/lib/db";
 import { CategoryForm } from "./CategoryForm";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Categorías" };
 
 export default async function CategoriesPage() {
+  await requirePermission("catalog.manage");
   const categories = await db.category.findMany({ orderBy: { sortOrder: "asc" }, include: { _count: { select: { products: true } } } });
   return (
     <>

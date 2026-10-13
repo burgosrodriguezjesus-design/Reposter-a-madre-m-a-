@@ -1,0 +1,164 @@
+# Prometheus para el despliegue autoalojado (Docker Compose con varias réplicas).
+# PLANTILLA NO PROBADA en este entorno con Prometheus real: solo se ha validado que
+# el YAML parsea (promtool no está disponible aquí). Antes de usarla:
+#   promtool check config prometheus.yml
+#   promtool check rules alerts.yml slo.yml
+#
+# Nombres de servicio supuestos en la red de la app (ajusta a tu docker-compose):
+#   app (réplicas de Next.js, puerto 3000), postgres, redis.
+# Cada réplica se scrapea POR SEPARADO (dns_sd_configs resuelve todas las IPs del
+# servicio "app"): las métricas son por proceso y scrapear a través del balanceador
+# mezclaría réplicas al azar.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    site: reposteria
+    env: production
+
+rule_files:
+  - alerts.yml
+  - slo.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  # --- App: /api/metrics con "Authorization: Bearer $METRICS_TOKEN" ---------------
+  - job_name: reposteria-app
+    metrics_path: /api/metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      # Fichero con METRICS_TOKEN (secreto de Docker Compose), nunca el valor en claro aquí.
+      credentials_file: /run/secrets/metrics_token
+    dns_sd_configs:
+      - names:
+          - app
+        type: A
+        port: 3000
+        refresh_interval: 30s
+
+  # --- Readiness de cada réplica (/api/health/ready) vía blackbox_exporter ----------
+  - job_name: blackbox-ready
+    metrics_path: /probe
+    params:
+      module:
+        - http_ready_internal
+    dns_sd_configs:
+      - names:
+          - app
+        type: A
+        port: 3000
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+        replacement: "http://${1}/api/health/ready"
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # --- Sondas públicas (como un visitante): portada, vida y readiness por HTTPS -----
+  # Complementan a los monitores externos de uptime-checks.md (estos se ejecutan
+  # desde la misma infraestructura, así que no detectan una caída total del host).
+  - job_name: blackbox-public
+    metrics_path: /probe
+    scrape_interval: 60s
+    params:
+      module:
+        - http_2xx_public
+    static_configs:
+      - targets:
+          - https://reposteria.example.com/
+          - https://reposteria.example.com/api/health
+          - https://reposteria.example.com/api/health/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # --- PostgreSQL (postgres_exporter con un rol de solo lectura pg_monitor) --------
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - postgres-exporter:9187
+
+  # --- Redis (redis_exporter) --------------------------------------------------------
+  # Ojo: tanto la app como redis_exporter exponen "redis_up"; las reglas distinguen
+  # siempre por job ("reposteria-app" = Redis visto desde la app, "redis" = servidor).
+  - job_name: redis
+    static_configs:
+      - targets:
+          - redis-exporter:9121
+
+  # --- Host (node_exporter): disco, memoria, CPU y métricas de copias (textfile) ----
+  - job_name: node
+    static_configs:
+      - targets:
+          - node-exporter:9100
+
+  # --- La propia pila de monitorización ---------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+  - job_name: alertmanager
+    static_configs:
+      - targets:
+          - alertmanager:9093
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets:
+          - blackbox-exporter:9115
+
+  # --- Variantes (descomentar según el despliegue) -----------------------------------
+  #
+  # Kubernetes sin Prometheus Operator: un objetivo por pod a partir de los Endpoints
+  # del Service "reposteria-app" (con Operator usa infra/k8s/optional/servicemonitor.yaml).
+  # - job_name: reposteria-app
+  #   metrics_path: /api/metrics
+  #   authorization:
+  #     type: Bearer
+  #     credentials_file: /etc/prometheus/secrets/reposteria-metrics-token/token
+  #   kubernetes_sd_configs:
+  #     - role: endpoints
+  #       namespaces:
+  #         names: [reposteria]
+  #   relabel_configs:
+  #     - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+  #       regex: reposteria-app;http
+  #       action: keep
+  #     - source_labels: [__meta_kubernetes_pod_name]
+  #       target_label: pod
+  #
+  # PgBouncer (prometheus-community/pgbouncer_exporter):
+  # - job_name: pgbouncer
+  #   static_configs:
+  #     - targets: [pgbouncer-exporter:9127]
+  #
+  # Supabase (endpoint de métricas del proyecto; los nombres de métricas difieren de
+  # postgres_exporter, adapta las reglas de conexiones):
+  # - job_name: supabase
+  #   scheme: https
+  #   metrics_path: /customer/v1/privileged/metrics
+  #   basic_auth:
+  #     username: service_role
+  #     password_file: /run/secrets/supabase_service_role_key
+  #   static_configs:
+  #     - targets: [PROYECTO.supabase.co]
+  #
+  # Vercel: /api/metrics por la URL pública llega a una instancia cualquiera y los
+  # contadores en memoria no son globales. En Vercel usa Observability/Log Drains y
+  # los monitores externos; este Prometheus está pensado para el despliegue autoalojado.

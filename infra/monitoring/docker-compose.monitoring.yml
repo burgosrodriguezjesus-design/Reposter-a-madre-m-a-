@@ -1,0 +1,153 @@
+# Pila de monitorización para el despliegue autoalojado con Docker Compose.
+# Uso (desde esta carpeta, con la app ya levantada):
+#   docker compose -f docker-compose.monitoring.yml up -d
+# PLANTILLA: validada con "docker compose config"; no se ha arrancado en este entorno.
+#
+# - Se une a la red de la app (externa) para scrapear "app", "postgres" y "redis".
+#   Ajusta REPOSTERIA_APP_NETWORK al nombre real de esa red (docker network ls).
+# - Prometheus y Alertmanager solo escuchan en 127.0.0.1: accede por túnel SSH
+#   (ssh -L 9090:127.0.0.1:9090 servidor). No los publiques en Internet.
+# - Secretos en ./secrets/ (ignorados por git), legibles por el usuario del
+#   contenedor (p. ej. chmod 0644 dentro de un directorio 0700 propiedad de root).
+# - Fija las imágenes por digest en producción y comprueba que las etiquetas existen.
+name: reposteria-monitoring
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  prometheus:
+    <<: *hardening
+    image: prom/prometheus:v3.5.0
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # >= 30 días para la ventana del SLO
+      - --storage.tsdb.retention.time=45d
+      - --web.listen-address=:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./slo.yml:/etc/prometheus/slo.yml:ro
+      - prometheus-data:/prometheus
+    secrets:
+      - metrics_token
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - monitoring
+      - app
+    mem_limit: 1g
+
+  alertmanager:
+    <<: *hardening
+    image: prom/alertmanager:v0.28.1
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    secrets:
+      - smtp_password
+      - alert_webhook_url
+      - heartbeat_url
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - monitoring
+    mem_limit: 256m
+
+  blackbox-exporter:
+    <<: *hardening
+    image: prom/blackbox-exporter:v0.25.0
+    user: "65534:65534"
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - monitoring
+      - app
+    mem_limit: 128m
+
+  node-exporter:
+    <<: *hardening
+    image: prom/node-exporter:v1.8.2
+    user: "65534:65534"
+    command:
+      - --path.rootfs=/host
+      # Métricas de copias de seguridad escritas por backup-with-metrics.sh
+      - --collector.textfile.directory=/textfile
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+      - /var/lib/node_exporter/textfile_collector:/textfile:ro
+    networks:
+      - monitoring
+    mem_limit: 128m
+
+  postgres-exporter:
+    <<: *hardening
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    user: "65534:65534"
+    environment:
+      # Rol "monitoring" con pg_monitor (solo lectura de estadísticas), no el de la app.
+      DATA_SOURCE_URI: "postgres:5432/reposteria?sslmode=disable"
+      DATA_SOURCE_USER: "monitoring"
+      DATA_SOURCE_PASS_FILE: /run/secrets/postgres_exporter_password
+    secrets:
+      - postgres_exporter_password
+    networks:
+      - monitoring
+      - app
+    mem_limit: 128m
+
+  redis-exporter:
+    <<: *hardening
+    image: oliver006/redis_exporter:v1.66.0
+    user: "65534:65534"
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    # REDIS_PASSWORD (y REDIS_USER si usas ACL) en este fichero opcional, no versionado.
+    env_file:
+      - path: ./secrets/redis-exporter.env
+        required: false
+    networks:
+      - monitoring
+      - app
+    mem_limit: 64m
+
+networks:
+  monitoring: {}
+  app:
+    external: true
+    name: ${REPOSTERIA_APP_NETWORK:-reposteria_default}
+
+volumes:
+  prometheus-data: {}
+  alertmanager-data: {}
+
+secrets:
+  metrics_token:
+    file: ./secrets/metrics_token
+  smtp_password:
+    file: ./secrets/smtp_password
+  alert_webhook_url:
+    file: ./secrets/alert_webhook_url
+  heartbeat_url:
+    file: ./secrets/heartbeat_url
+  postgres_exporter_password:
+    file: ./secrets/postgres_exporter_password

@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/lib/logger";
 import { phoneToWhatsApp } from "@/lib/format";
 
 /**
@@ -36,10 +37,14 @@ export async function sendWhatsAppTemplate(to: string, template: string, params:
         }),
       },
     );
-    if (!res.ok) console.error("[whatsapp]", res.status, await res.text());
+    // La respuesta de Meta puede repetir el teléfono: solo se registra el estado y el código de error
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: { code?: number } } | null;
+      log.warn("whatsapp.error", { status: res.status, code: body?.error?.code ?? null });
+    }
     return res.ok;
   } catch (error) {
-    console.error("[whatsapp] Error de envío", error);
+    log.warn("whatsapp.send_failed", { error });
     return false;
   }
 }

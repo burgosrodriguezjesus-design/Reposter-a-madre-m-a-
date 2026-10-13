@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { emailHash } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 import { priceCustomCake } from "@/lib/pricing";
 import { quoteRequestSchema, firstError } from "@/lib/validation";
@@ -9,8 +10,9 @@ import { isOwnUploadUrl } from "@/lib/storage";
 import { quoteNumber, secureToken } from "@/lib/ids";
 import { availabilityContext } from "@/lib/schedule";
 import { getDayAvailability } from "@/lib/availability";
-import { sendEmail } from "@/lib/email";
-import { newQuoteAdminEmail, quoteReceivedEmail, quoteUrl } from "@/lib/emails";
+import { quoteUrl } from "@/lib/emails";
+import { enqueue } from "@/lib/jobs";
+import { kickJobs } from "@/lib/job-handlers";
 
 /** Solicitud de presupuesto para tartas con diseños complejos. */
 export async function POST(request: Request) {
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
       estimatedCents: priced.priceCents,
       customerName: input.customer.name,
       customerEmail: input.customer.email,
+      customerEmailHash: emailHash(input.customer.email),
       customerPhone: input.customer.phone,
       desiredDate: input.desiredDate,
       fulfillment: input.fulfillment,
@@ -51,9 +54,9 @@ export async function POST(request: Request) {
     },
   });
 
-  await sendEmail(quoteReceivedEmail(quote, settings));
-  const admin = settings.notifications.adminEmail || settings.business.email;
-  if (admin) await sendEmail(newQuoteAdminEmail(quote, settings, admin));
+  await enqueue("email.send", { template: "quote-received", quoteId: quote.id }, { dedupeKey: `email:quote-received:${quote.id}` });
+  await enqueue("email.send", { template: "quote-admin", quoteId: quote.id }, { dedupeKey: `email:quote-admin:${quote.id}` });
+  kickJobs();
 
   return NextResponse.json({ ok: true, url: quoteUrl(quote).replace(/^https?:\/\/[^/]+/, "") });
 }

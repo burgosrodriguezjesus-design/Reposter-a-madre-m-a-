@@ -9,10 +9,13 @@ import { hasDemoContent } from "@/lib/catalog";
 import { addDays, localNow } from "@/lib/availability";
 import { formatPrice } from "@/lib/format";
 import { setupChecklist } from "@/lib/setup-status";
+import { requirePermission } from "@/lib/auth";
+import { can } from "@/lib/rbac";
 
 const SOLD = ["ACCEPTED", "IN_PREPARATION", "READY", "DELIVERED"] as const;
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: PageProps<"/admin">) {
+  const admin = await requirePermission("orders.view");
   const settings = await getSettings();
   const today = localNow(settings.business.timezone).date;
   const monthStart = new Date(`${today.slice(0, 7)}-01T00:00:00`);
@@ -46,12 +49,21 @@ export default async function DashboardPage() {
     <>
       <AutoRefresh seconds={60} />
       <PageHeader title={`Hola 👋`} description="Resumen de tu obrador. Esta página se actualiza sola cada minuto." />
+      {(await searchParams)["sin-permiso"] === "1" && (
+        <p role="alert" className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Tu usuario no tiene permiso para esa sección. Si lo necesitas, pídeselo al propietario.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Por aceptar" value={pending.length} hint="pedidos pendientes" href="/admin/pedidos" />
         <Stat label="Para hoy" value={todayCount} hint="recogidas y entregas" href="/admin/pedidos?vista=hoy" />
-        <Stat label="Ventas del mes" value={formatPrice(monthRevenue)} hint={`${monthAgg._count._all} pedidos`} href="/admin/estadisticas" />
-        <Stat label="Ticket medio" value={formatPrice(avg)} hint="este mes" />
+        {can(admin.role, "stats.view") && (
+          <>
+            <Stat label="Ventas del mes" value={formatPrice(monthRevenue)} hint={`${monthAgg._count._all} pedidos`} href="/admin/estadisticas" />
+            <Stat label="Ticket medio" value={formatPrice(avg)} hint="este mes" />
+          </>
+        )}
       </div>
 
       {(newQuotes > 0 || pendingReviews > 0) && (

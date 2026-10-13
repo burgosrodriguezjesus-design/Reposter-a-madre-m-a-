@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidateSite, str } from "@/lib/admin";
 import { isValidDate } from "@/lib/availability";
@@ -15,16 +15,17 @@ const hoursSchema = z
   .refine((rows) => rows.every((r) => r.opensAt < r.closesAt), "La hora de cierre debe ser posterior a la de apertura");
 
 export async function saveOpeningHours(rows: { weekday: number; opensAt: string; closesAt: string }[]): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requirePermission("calendar.manage");
   const parsed = hoursSchema.safeParse(rows);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message };
   await db.$transaction([db.openingHour.deleteMany(), db.openingHour.createMany({ data: parsed.data })]);
+  await auditAdmin(admin, { action: "calendar.hours_update", entity: "OpeningHour", details: { rows: parsed.data } });
   revalidateSite();
   return { ok: true, message: "Horario guardado" };
 }
 
 export async function addBlockedDate(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requirePermission("calendar.manage");
   const startDate = str(formData, "startDate");
   const endDate = str(formData, "endDate") || startDate;
   const reason = str(formData, "reason", 120);
@@ -32,7 +33,8 @@ export async function addBlockedDate(_prev: ActionResult, formData: FormData): P
   const affected = await db.order.count({
     where: { scheduledDate: { gte: startDate, lte: endDate }, status: { in: ["PENDING", "ACCEPTED", "IN_PREPARATION", "READY"] } },
   });
-  await db.blockedDate.create({ data: { startDate, endDate, reason: reason || "Cerrado" } });
+  const blocked = await db.blockedDate.create({ data: { startDate, endDate, reason: reason || "Cerrado" } });
+  await auditAdmin(admin, { action: "calendar.block_add", entity: "BlockedDate", entityId: blocked.id, details: { startDate, endDate, affected } });
   revalidatePath("/admin/calendario");
   return {
     ok: true,
@@ -41,7 +43,9 @@ export async function addBlockedDate(_prev: ActionResult, formData: FormData): P
 }
 
 export async function removeBlockedDate(formData: FormData) {
-  await requireAdmin();
-  await db.blockedDate.delete({ where: { id: str(formData, "id") } });
+  const admin = await requirePermission("calendar.manage");
+  const id = str(formData, "id");
+  const removed = await db.blockedDate.delete({ where: { id } });
+  await auditAdmin(admin, { action: "calendar.block_remove", entity: "BlockedDate", entityId: id, details: { startDate: removed.startDate, endDate: removed.endDate } });
   revalidatePath("/admin/calendario");
 }

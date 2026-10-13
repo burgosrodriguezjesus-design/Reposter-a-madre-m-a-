@@ -1,0 +1,268 @@
+# ════════════════════════════════════════════════════════════════════
+#  Sitio de la repostería: HTTP→HTTPS, TLS, WAF, límites, caché y proxy a la app
+# ════════════════════════════════════════════════════════════════════
+#  Es una PLANTILLA: al arrancar, el entrypoint de la imagen (nginx oficial o CRS) sustituye
+#  ${SERVER_NAME} por la variable de entorno (p. ej. www.tudominio.es) y la escribe en
+#  /etc/nginx/conf.d/default.conf. Las variables de nginx ($host, $uri...) no se tocan.
+#  Montaje en la imagen CRS: /etc/nginx/templates/conf.d/default.conf.template
+#
+#  Certificados (montados de solo lectura en /etc/nginx/tls/):
+#    fullchain.pem  certificado + intermedios     privkey.pem  clave privada
+#    chain.pem      solo intermedios (verificación del OCSP stapling)
+#  Renovación con Let's Encrypt (HTTP-01): el desafío se sirve desde /var/www/acme (volumen
+#  compartido con certbot). Tras renovar: docker compose exec waf nginx -s reload
+#
+#  Puertos internos 8080/8443 (la imagen no tiene privilegios); Compose publica 80→8080 y 443→8443.
+# ════════════════════════════════════════════════════════════════════
+
+# ── HTTP (puerto 80): solo desafíos ACME y redirección permanente a HTTPS ──
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    include /etc/nginx/snippets/security-headers.conf;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/acme;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    # Comprobación de salud del contenedor (healthcheck de docker-compose.prod.yml).
+    # Solo desde dentro del propio contenedor; sin TLS ni SNI para no depender del certificado.
+    location = /healthz {
+        allow 127.0.0.1;
+        deny all;
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Siempre al host canónico (nunca al Host que mande el cliente: evita redirecciones abiertas)
+    location / {
+        return 301 https://${SERVER_NAME}$request_uri;
+    }
+}
+
+# ── HTTPS por defecto: rechaza el handshake si el SNI no es nuestro dominio ──
+# Los escáneres que entran por IP no obtienen ni el certificado ni respuesta.
+server {
+    listen 8443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+
+# ── HTTPS del sitio ──
+server {
+    listen 8443 ssl;
+    http2 on;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate         /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key     /etc/nginx/tls/privkey.pem;
+    ssl_trusted_certificate /etc/nginx/tls/chain.pem;
+
+    include /etc/nginx/snippets/security-headers.conf;
+
+    # Nada se cachea salvo donde se activa explícitamente (static, image, demo)
+    proxy_cache off;
+
+    # Concurrencia por IP (en HTTP/2 cuenta cada petición en curso)
+    limit_conn conn_per_ip 50;
+
+    # Métodos que usa la app; el resto (TRACE, CONNECT, WebDAV...) ni siquiera llega al WAF
+    if ($request_method !~ ^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$) {
+        return 405;
+    }
+
+    # Páginas de error propias de nginx (las de la app pasan tal cual: proxy_intercept_errors off)
+    error_page 403 = @bloqueado;
+    error_page 429 = @demasiadas;
+    error_page 502 503 504 = @no_disponible;
+
+    include /etc/nginx/snippets/block-sensitive.conf;
+
+    # Comprobación de salud del propio proxy (solo desde dentro del contenedor)
+    location = /healthz {
+        allow 127.0.0.1;
+        deny all;
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # ── Recursos estáticos con hash: inmutables, cacheados en nginx ──
+    location ^~ /_next/static/ {
+        location ~* \.map$ {
+            return 404;
+        }
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        # En un despliegue gradual, una réplica antigua puede no tener el fichero nuevo:
+        # se reintenta en otra réplica ante 404 (GET idempotente).
+        proxy_next_upstream error timeout http_404 http_502 http_503 http_504;
+        proxy_next_upstream_tries 3;
+
+        proxy_buffering on;
+        proxy_cache static_cache;
+        proxy_cache_valid 200 30d;
+        proxy_cache_lock on;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control $fb_static_cache_control;
+        add_header X-Cache-Status $upstream_cache_status;
+        access_log off;
+    }
+
+    # ── Optimizador de imágenes de Next (público): caché por URL + formato ──
+    location ^~ /_next/image {
+        limit_req zone=req_images burst=100 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_set_header Accept $img_accept;
+
+        proxy_buffering on;
+        proxy_cache public_cache;
+        proxy_cache_key "$scheme$host$request_uri|$img_format";
+        # Accept está normalizado y forma parte de la clave: se ignora Vary para no multiplicar
+        # variantes. Cache-Control y Set-Cookie SÍ se respetan (private/no-store no se guardan).
+        proxy_ignore_headers Vary;
+        proxy_cache_valid 200 1d;
+        proxy_cache_lock on;
+        proxy_cache_lock_timeout 10s;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_background_update on;
+
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header X-Cache-Status $upstream_cache_status;
+    }
+
+    # ── Imágenes de demostración (public/demo, Cache-Control public desde next.config) ──
+    location ^~ /demo/ {
+        limit_req zone=req_general burst=40 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+
+        proxy_buffering on;
+        proxy_cache public_cache;
+        proxy_cache_valid 200 1d;
+        proxy_cache_lock on;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header X-Cache-Status $upstream_cache_status;
+    }
+
+    # ── Webhook de Stripe: solo POST, cuerpo intacto, sin límite estricto ──
+    # nginx no modifica el cuerpo; la firma (Stripe-Signature) la verifica la app.
+    location = /api/stripe/webhook {
+        limit_except POST {
+            deny all;
+        }
+        limit_req zone=req_webhook burst=200 nodelay;
+        client_max_body_size 2m;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_next_upstream off;
+        proxy_read_timeout 30s;
+    }
+
+    # ── Tareas programadas y métricas: solo red interna ──
+    # El servicio "scheduler" llama a http://app:3000/api/cron* y Prometheus a /api/metrics
+    # directamente por la red "app"; desde Internet no existen (además exigen Bearer en la app).
+    location ^~ /api/cron {
+        return 404;
+    }
+    location = /api/metrics {
+        return 404;
+    }
+
+    # ── Creación de pedidos: 2 r/s por IP (y el límite general de API) ──
+    location ^~ /api/orders {
+        limit_req zone=req_orders burst=4 nodelay;
+        limit_req zone=req_api burst=20 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+    }
+
+    # ── API del panel ──
+    location ^~ /api/admin/ {
+        include /etc/nginx/snippets/admin-allowlist.conf;
+        limit_req zone=req_api burst=20 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+    }
+
+    # ── Resto de la API: 10 r/s por IP ──
+    location /api/ {
+        limit_req zone=req_api burst=20 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_buffering off;
+    }
+
+    # ── Acceso al panel: 5 intentos (POST) por minuto y IP ──
+    location ^~ /admin/login {
+        include /etc/nginx/snippets/admin-allowlist.conf;
+        limit_req zone=req_login burst=5 nodelay;
+        limit_req zone=req_general burst=40 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_buffering off;
+    }
+
+    # ── Panel de administración (la app exige sesión + MFA) ──
+    location /admin {
+        include /etc/nginx/snippets/admin-allowlist.conf;
+        limit_req zone=req_general burst=40 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_buffering off;
+    }
+
+    # ── Todo lo demás: páginas, RSC, Server Actions, /pedido, /presupuesto... (sin caché) ──
+    # proxy_buffering off: el App Router transmite HTML/RSC en streaming (Suspense).
+    location / {
+        limit_req zone=req_general burst=40 nodelay;
+
+        proxy_pass http://reposteria_app;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_buffering off;
+    }
+
+    # ── Respuestas propias de nginx ──
+    location @bloqueado {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'" always;
+        add_header Cache-Control "no-store" always;
+        default_type "text/plain; charset=utf-8";
+        return 403 "Solicitud bloqueada por seguridad. Si crees que es un error, escríbenos indicando este código: $request_id\n";
+    }
+
+    location @demasiadas {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'" always;
+        add_header Cache-Control "no-store" always;
+        add_header Retry-After "10" always;
+        default_type "text/plain; charset=utf-8";
+        return 429 "Demasiadas solicitudes seguidas. Espera unos segundos y vuelve a intentarlo.\n";
+    }
+
+    location @no_disponible {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'" always;
+        add_header Cache-Control "no-store" always;
+        add_header Retry-After "30" always;
+        default_type "text/plain; charset=utf-8";
+        return 503 "Estamos actualizando la web. Vuelve a intentarlo en un momento.\n";
+    }
+}

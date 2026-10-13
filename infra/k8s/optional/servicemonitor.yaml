@@ -1,0 +1,31 @@
+# OPCIONAL: scrape de /api/metrics con Prometheus Operator (kube-prometheus-stack).
+# Prometheus scrapea cada pod por separado (no a través del ingress) con el token
+# del Secret "reposteria-metrics-token" (creado por externalsecret.yaml).
+# La etiqueta job resultante es el nombre del Service ("reposteria-app"), la misma
+# que usan las reglas de infra/monitoring/alerts.yml.
+# Ajusta la etiqueta "release" al selector de tu instalación de Prometheus.
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: reposteria-app
+  labels:
+    app.kubernetes.io/name: reposteria
+    app.kubernetes.io/component: monitoring
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: web
+  endpoints:
+    - port: http
+      path: /api/metrics
+      scheme: http
+      interval: 30s
+      scrapeTimeout: 10s
+      authorization:
+        type: Bearer
+        credentials:
+          name: reposteria-metrics-token
+          key: token

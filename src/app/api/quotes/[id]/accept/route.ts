@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { safeEqual } from "@/lib/crypto";
+import { log } from "@/lib/logger";
 import { CheckoutError, createOrder } from "@/lib/checkout";
 import { limitByIp } from "@/lib/rate-limit";
 import { firstError } from "@/lib/validation";
@@ -24,7 +26,7 @@ export async function POST(request: Request, { params }: RouteContext<"/api/quot
   const input = parsed.data;
 
   const quote = await db.quoteRequest.findUnique({ where: { id }, include: { order: true } });
-  if (!quote || quote.accessToken !== input.token) return NextResponse.json({ error: "Presupuesto no encontrado" }, { status: 404 });
+  if (!quote || !safeEqual(quote.accessToken, input.token)) return NextResponse.json({ error: "Presupuesto no encontrado" }, { status: 404 });
   if (quote.status !== "QUOTED") return NextResponse.json({ error: "Este presupuesto ya no se puede aceptar" }, { status: 409 });
   if (quote.order) {
     if (quote.order.status !== "CANCELLED") {
@@ -49,12 +51,12 @@ export async function POST(request: Request, { params }: RouteContext<"/api/quot
         acceptTerms: true,
         marketingConsent: false,
       },
-      quote,
+      { quote },
     );
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof CheckoutError) return NextResponse.json({ error: error.message }, { status: 409 });
-    console.error("[quotes] Error al aceptar", error);
+    log.error("quotes.accept_failed", { error });
     return NextResponse.json({ error: "No se pudo confirmar. Inténtalo de nuevo o llámanos." }, { status: 500 });
   }
 }

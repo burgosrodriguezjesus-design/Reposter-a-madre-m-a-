@@ -1,0 +1,44 @@
+# OPCIONAL (solo con Cilium): salida de la app limitada por nombre de dominio, más
+# estricta que la regla por puertos de networkpolicy.yaml. Si la usas, elimina la
+# regla ipBlock 0.0.0.0/0 de "app-egress" para que esta sea la única salida externa.
+# Ajusta los dominios a tu proveedor SMTP, proyecto de Supabase y webhook de alertas.
+# PLANTILLA NO PROBADA EN UN CLÚSTER.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: app-egress-fqdn
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: reposteria
+      app.kubernetes.io/component: web
+  egress:
+    # Cilium necesita ver las consultas DNS para resolver los toFQDNs
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toFQDNs:
+        - matchName: api.stripe.com
+        - matchName: files.stripe.com
+        - matchPattern: "*.supabase.co"
+        - matchName: hooks.slack.com
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    - toFQDNs:
+        - matchName: smtp.example.com
+      toPorts:
+        - ports:
+            - port: "587"
+              protocol: TCP
+            - port: "465"
+              protocol: TCP

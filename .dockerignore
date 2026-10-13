@@ -1,0 +1,77 @@
+# ════════════════════════════════════════════════════════════════════
+#  Contexto de compilación de la imagen de la app (Dockerfile raíz).
+#  Objetivo: que NUNCA entren secretos, datos de clientes ni basura en la imagen.
+#  Nota: "next build" con output 'standalone' copia .env y .env.production a
+#  .next/standalone si existen; por eso se excluyen todos los .env* aquí.
+#  (La imagen de copias de seguridad usa su propio infra/postgres/backup/Dockerfile.dockerignore.)
+# ════════════════════════════════════════════════════════════════════
+
+# Secretos y configuración local
+.env*
+!.env.example
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
+**/*.pfx
+**/*.age
+secrets/
+.npmrc
+.vercel
+
+# Dependencias y artefactos (se regeneran dentro de la imagen)
+node_modules
+**/node_modules
+.next
+out
+build
+coverage
+*.tsbuildinfo
+next-env.d.ts
+.turbo
+.cache
+
+# Datos de usuarios / copias de seguridad
+uploads
+public/uploads
+backups
+*.sql
+*.sql.gz
+*.dump
+
+# Control de versiones, CI, editores y agentes
+.git
+.gitignore
+.github
+.gitlab-ci.yml
+.vscode
+.idea
+.claude
+.DS_Store
+*.log
+AGENTS.md
+CLAUDE.md
+
+# Pruebas
+tests
+test
+e2e
+playwright-report
+test-results
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.*
+playwright.config.*
+
+# Documentación e infraestructura (no hacen falta para compilar la app)
+docs
+*.md
+infra
+scripts
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+compose*.yml
+vercel.json

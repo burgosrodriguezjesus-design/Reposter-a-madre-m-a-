@@ -1,0 +1,87 @@
+{
+  "description": "Reglas WAF personalizadas de la repostería (fase http_request_firewall_custom)",
+  "rules": [
+    {
+      "ref": "rp_stripe_webhook_skip",
+      "description": "Webhook de Stripe desde IPs oficiales: sin rate limit, Super Bot Fight Mode ni Browser Integrity Check (la firma se verifica en la app)",
+      "expression": "(http.request.uri.path eq \"/api/stripe/webhook\" and http.request.method eq \"POST\" and ip.src in $stripe_webhooks)",
+      "action": "skip",
+      "action_parameters": {
+        "ruleset": "current",
+        "phases": [
+          "http_ratelimit",
+          "http_request_sbfm"
+        ],
+        "products": [
+          "bic",
+          "securityLevel"
+        ]
+      },
+      "logging": {
+        "enabled": true
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_health_skip_bots",
+      "description": "Sondas de disponibilidad (/api/health*): sin Super Bot Fight Mode ni Browser Integrity Check",
+      "expression": "(starts_with(http.request.uri.path, \"/api/health\") and http.request.method in {\"GET\" \"HEAD\"})",
+      "action": "skip",
+      "action_parameters": {
+        "phases": [
+          "http_request_sbfm"
+        ],
+        "products": [
+          "bic",
+          "securityLevel"
+        ]
+      },
+      "logging": {
+        "enabled": true
+      },
+      "enabled": true
+    },
+    {
+      "ref": "rp_sensitive_paths",
+      "description": "Rutas sensibles y escaneos: ficheros ocultos, volcados, paneles de otros CMS",
+      "expression": "((starts_with(http.request.uri.path, \"/.\") and not starts_with(http.request.uri.path, \"/.well-known/\")) or starts_with(http.request.uri.path, \"/wp-\") or starts_with(http.request.uri.path, \"/phpmyadmin\") or starts_with(http.request.uri.path, \"/cgi-bin\") or starts_with(http.request.uri.path, \"/vendor/\") or http.request.uri.path in {\"/xmlrpc.php\" \"/server-status\" \"/server-info\" \"/adminer.php\" \"/config.json\" \"/actuator\"} or ends_with(http.request.uri.path, \".php\") or ends_with(http.request.uri.path, \".sql\") or ends_with(http.request.uri.path, \".bak\") or ends_with(http.request.uri.path, \".env\") or ends_with(http.request.uri.path, \".zip\") or ends_with(http.request.uri.path, \".tar.gz\"))",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "ref": "rp_internal_routes",
+      "description": "Rutas internas cerradas al exterior: métricas y cron se llaman desde la red interna (Prometheus y planificador), no a través de Cloudflare",
+      "expression": "(starts_with(http.request.uri.path, \"/api/metrics\") or starts_with(http.request.uri.path, \"/api/cron\"))",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "ref": "rp_webhook_post_only",
+      "description": "El webhook de Stripe solo admite POST",
+      "expression": "(http.request.uri.path eq \"/api/stripe/webhook\" and http.request.method ne \"POST\")",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "ref": "rp_http_methods",
+      "description": "Métodos HTTP no usados por la app",
+      "expression": "(not http.request.method in {\"GET\" \"HEAD\" \"POST\" \"DELETE\" \"OPTIONS\"})",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "ref": "rp_admin_geo_challenge",
+      "description": "Panel desde fuera de España: Managed Challenge (no bloqueo). Desactivar si el equipo trabaja desde otros países",
+      "expression": "((starts_with(http.request.uri.path, \"/admin\") or starts_with(http.request.uri.path, \"/api/admin\")) and ip.src.country ne \"ES\")",
+      "action": "managed_challenge",
+      "enabled": true
+    },
+    {
+      "ref": "rp_empty_ua_challenge",
+      "description": "Peticiones a páginas sin User-Agent: Managed Challenge",
+      "expression": "(http.user_agent eq \"\" and not starts_with(http.request.uri.path, \"/api/\"))",
+      "action": "managed_challenge",
+      "enabled": true
+    }
+  ]
+}

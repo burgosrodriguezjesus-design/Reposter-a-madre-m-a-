@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { isCronAuthorized } from "@/lib/http";
+import { applyRetention } from "@/lib/privacy";
+import { verifyAuditChain } from "@/lib/audit";
+import { securityAlert } from "@/lib/alerts";
+import { kickJobs } from "@/lib/job-handlers";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
-import { getStripe } from "@/lib/stripe";
-import { expireUnpaidOrder, markOrderPaid } from "@/lib/order-events";
 import { sendEmail } from "@/lib/email";
 import { abandonedCartEmail, reminderEmail } from "@/lib/emails";
 import { addDays, localNow } from "@/lib/availability";
@@ -14,46 +17,15 @@ import { formatLocalDate } from "@/lib/format";
  *  1. Revisa pagos pendientes caducados.
  *  2. Envía UN recordatorio de carrito a quien lo autorizó.
  *  3. Envía los recordatorios de celebraciones.
- *  4. Limpia datos antiguos (minimización de datos, RGPD).
+ *  4. Aplica los plazos de conservación (anonimización y borrado, RGPD).
+ *  5. Verifica el registro de auditoría y envía su huella fuera del sistema.
  */
-export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-  const settings = await getSettings();
-  const report = { expiredOrders: 0, paidOrders: 0, cartEmails: 0, reminders: 0 };
+export const maxDuration = 60;
 
-  // 1. Pedidos pendientes de pago desde hace más de 40 minutos
-  const stale = await db.order.findMany({
-    where: { status: "PENDING_PAYMENT", createdAt: { lt: new Date(Date.now() - 40 * 60_000) } },
-    take: 100,
-  });
-  const stripe = getStripe();
-  for (const order of stale) {
-    let paid = false;
-    if (stripe && order.stripeSessionId) {
-      try {
-        const session = await stripe.checkout.sessions.retrieve(order.stripeSessionId);
-        if (session.payment_status === "paid") {
-          await markOrderPaid(order.id, typeof session.payment_intent === "string" ? session.payment_intent : null);
-          paid = true;
-          report.paidOrders++;
-        }
-      } catch (error) {
-        console.error("[cron] Stripe", error);
-        continue;
-      }
-    }
-    if (!paid) {
-      await expireUnpaidOrder(order.id);
-      report.expiredOrders++;
-    }
-  }
-  await db.giftCard.updateMany({
-    where: { status: "PENDING_PAYMENT", paymentMethod: "CARD", createdAt: { lt: new Date(Date.now() - 24 * 3600_000) } },
-    data: { status: "CANCELLED" },
-  });
+export async function GET(request: Request) {
+  if (!isCronAuthorized(request)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const settings = await getSettings();
+  const report = { cartEmails: 0, reminders: 0 };
 
   // 2. Recordatorio de carrito (una sola vez, solo con consentimiento)
   if (settings.marketing.abandonedCartEnabled) {
@@ -70,19 +42,21 @@ export async function GET(request: Request) {
     });
     for (const cart of carts) {
       const recentOrder = await db.order.findFirst({
-        where: { customerEmail: cart.email, createdAt: { gte: cart.updatedAt }, status: { notIn: ["CANCELLED", "PENDING_PAYMENT"] } },
+        where: { customerEmailHash: cart.emailHash, createdAt: { gte: cart.updatedAt }, status: { notIn: ["CANCELLED", "PENDING_PAYMENT"] } },
       });
       if (recentOrder) {
         await db.abandonedCart.update({ where: { id: cart.id }, data: { recoveredAt: new Date() } });
         continue;
       }
-      const customer = await db.customer.findUnique({ where: { email: cart.email } });
-      await sendEmail(
+      const customer = await db.customer.findUnique({ where: { emailHash: cart.emailHash } });
+      // Solo se marca como enviado si el envío funcionó (si no, se reintenta en la siguiente ejecución)
+      const sent = await sendEmail(
         abandonedCartEmail(
           { name: cart.name, email: cart.email, token: cart.token, unsubscribeToken: customer?.unsubscribeToken ?? `c-${cart.token}` },
           settings,
         ),
       );
+      if (!sent) continue;
       await db.abandonedCart.update({ where: { id: cart.id }, data: { emailSentAt: new Date() } });
       report.cartEmails++;
     }
@@ -99,20 +73,29 @@ export async function GET(request: Request) {
       take: 500,
     });
     for (const r of reminders) {
-      await sendEmail(
+      const sent = await sendEmail(
         reminderEmail(
           { name: r.customer.name, email: r.customer.email, label: r.label, date: formatLocalDate(target), unsubscribeToken: r.customer.unsubscribeToken },
           settings,
         ),
       );
+      if (!sent) continue;
       await db.celebrationReminder.update({ where: { id: r.id }, data: { lastSentYear: year } });
       report.reminders++;
     }
   }
 
-  // 4. Limpieza
-  await db.abandonedCart.deleteMany({ where: { updatedAt: { lt: new Date(Date.now() - 30 * 86_400_000) } } });
-  await db.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 30 * 86_400_000) } } });
+  // 4. Conservación limitada (RGPD): anonimización y borrado automáticos
+  const retention = await applyRetention();
 
-  return NextResponse.json({ ok: true, ...report });
+  // 5. Ancla externa del registro de auditoría: la huella actual sale del sistema (alerta diaria)
+  const chain = await verifyAuditChain();
+  if (!chain.ok) {
+    await securityAlert("audit.chain_broken", "La cadena del registro de auditoría no es íntegra.", { brokenAtSeq: chain.brokenAtSeq ?? null }, { severity: "critical" });
+  } else {
+    await securityAlert("audit.anchor", "Huella diaria del registro de auditoría (guárdala para poder demostrar que no se ha alterado).", { entries: chain.checked, head: chain.head ?? null });
+  }
+  kickJobs();
+
+  return NextResponse.json({ ok: true, ...report, retention, auditChainOk: chain.ok }, { headers: { "Cache-Control": "no-store" } });
 }

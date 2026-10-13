@@ -1,9 +1,12 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
+import { log } from "@/lib/logger";
+import { invalidateMicroCache } from "@/lib/micro-cache";
 
 /** Tras cambiar catálogo o ajustes, regenera todas las páginas públicas en caché. */
 export function revalidateSite() {
+  invalidateMicroCache();
   revalidatePath("/", "layout");
 }
 
@@ -13,7 +16,7 @@ export function friendlyDbError(error: unknown, fallback = "No se pudo guardar")
     if (error.code === "P2003") return "No se puede borrar porque está en uso.";
     if (error.code === "P2025") return "El elemento ya no existe.";
   }
-  console.error(error);
+  log.error("admin.db_error", { error });
   return fallback;
 }
 

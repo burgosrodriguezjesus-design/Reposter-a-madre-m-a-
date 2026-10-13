@@ -6,10 +6,12 @@ import { ConfirmButton } from "@/components/admin/forms";
 import { db } from "@/lib/db";
 import { CategoryForm } from "../CategoryForm";
 import { deleteCategory } from "../actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Editar categoría" };
 
 export default async function EditCategoryPage({ params, searchParams }: PageProps<"/admin/categorias/[id]">) {
+  await requirePermission("catalog.manage");
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const category = await db.category.findUnique({ where: { id }, include: { _count: { select: { products: true } } } });
   if (!category) notFound();

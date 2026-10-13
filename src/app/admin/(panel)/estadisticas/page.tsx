@@ -3,6 +3,7 @@ import { BarChart } from "@/components/admin/BarChart";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
 import { PAYMENT_METHOD_LABEL } from "@/lib/order-status";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Estadísticas" };
 
@@ -14,6 +15,7 @@ const now = () => Date.now();
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
 export default async function StatsPage({ searchParams }: PageProps<"/admin/estadisticas">) {
+  await requirePermission("stats.view");
   const { periodo } = await searchParams;
   const key = (typeof periodo === "string" && periodo in PERIODS ? periodo : "30") as keyof typeof PERIODS;
   const days = PERIODS[key];
@@ -21,7 +23,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/admin/esta
 
   const orders = await db.order.findMany({
     where: { status: { in: [...SOLD] }, createdAt: { gte: since } },
-    select: { createdAt: true, totalCents: true, giftCardCents: true, discountCents: true, fulfillment: true, paymentMethod: true, couponCode: true, customerEmail: true },
+    select: { createdAt: true, totalCents: true, giftCardCents: true, discountCents: true, fulfillment: true, paymentMethod: true, couponCode: true, customerEmailHash: true },
   });
   const [topItems, cancelled, quotes] = await Promise.all([
     db.orderItem.groupBy({
@@ -38,7 +40,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/admin/esta
   const amount = (o: (typeof orders)[number]) => o.totalCents + o.giftCardCents;
   const revenue = orders.reduce((s, o) => s + amount(o), 0);
   const avg = orders.length ? Math.round(revenue / orders.length) : 0;
-  const customers = new Set(orders.map((o) => o.customerEmail)).size;
+  const customers = new Set(orders.map((o) => o.customerEmailHash)).size;
   const discounts = orders.reduce((s, o) => s + o.discountCents, 0);
 
   // Serie temporal: por día (30), por semana (90) o por mes (365)

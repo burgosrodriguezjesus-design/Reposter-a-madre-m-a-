@@ -47,13 +47,29 @@ function subscribe(cb: () => void) {
   };
 }
 
+/** Retirada del consentimiento: efecto inmediato (art. 7.3 RGPD), sin esperar a recargar. */
+function revokeAnalytics() {
+  const w = window as unknown as { gtag?: (...args: unknown[]) => void };
+  w.gtag?.("consent", "update", { analytics_storage: "denied" });
+  const host = location.hostname;
+  const domains = ["", host, `.${host}`, `.${host.split(".").slice(-2).join(".")}`];
+  for (const name of document.cookie.split(";").map((c) => c.split("=")[0].trim())) {
+    if (!/^_ga/.test(name)) continue;
+    for (const d of domains) document.cookie = `${name}=; Max-Age=0; Path=/${d ? `; Domain=${d}` : ""}`;
+  }
+  // El script de Google ya cargado no se puede descargar: se recarga la página sin él
+  location.reload();
+}
+
 function save(analytics: boolean) {
+  const previous = readConsent()?.analytics;
   try {
     localStorage.setItem(KEY, JSON.stringify({ analytics, date: new Date().toISOString() }));
   } catch {
     /* sin almacenamiento: se volverá a preguntar */
   }
   window.dispatchEvent(new Event(CHANGE_EVENT));
+  if (previous && !analytics) revokeAnalytics();
 }
 
 export function CookieSettingsLink() {
@@ -129,7 +145,8 @@ export function CookieConsent({ gaId }: { gaId: string }) {
                   className="mt-1 size-4 accent-blush-600"
                 />
                 <span>
-                  <strong>Analítica (Google Analytics).</strong> Estadísticas anónimas de visitas.
+                  <strong>Analítica (Google Analytics 4).</strong> Estadísticas de visitas con identificadores
+                  seudónimos (cookies _ga). Google puede tratar estos datos fuera de la UE.
                 </span>
               </label>
             </div>

@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { cached } from "@/lib/micro-cache";
 import { ACTIVE_ORDER_STATUSES } from "@/lib/order-status";
 import { fromPrice } from "@/lib/pricing";
 
@@ -19,23 +20,26 @@ export type ProductCardData = Prisma.ProductGetPayload<{ include: typeof product
 const visible = { active: true, archived: false, category: { active: true } } satisfies Prisma.ProductWhereInput;
 
 export const getCategories = cache(async () =>
-  db.category.findMany({
-    where: { active: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    include: { _count: { select: { products: { where: { active: true, archived: false } } } } },
-  }),
+  cached("catalog:categories", 30_000, () =>
+    db.category.findMany({
+      where: { active: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      include: { _count: { select: { products: { where: { active: true, archived: false } } } } },
+    }),
+  ),
 );
 
 /** Unidades vendidas por producto en los últimos 120 días (popularidad real). */
 export const getSalesByProduct = cache(async (): Promise<Map<string, number>> => {
-  const rows = await db.orderItem.groupBy({
+  // Agregado costoso y poco cambiante: 5 minutos de caché por instancia
+  const rows = await cached("catalog:sales", 300_000, () => db.orderItem.groupBy({
     by: ["productId"],
     where: {
       productId: { not: null },
       order: { status: { in: ACTIVE_ORDER_STATUSES }, createdAt: { gte: new Date(Date.now() - 120 * 86_400_000) } },
     },
     _sum: { quantity: true },
-  });
+  }));
   return new Map(rows.map((r) => [r.productId!, r._sum.quantity ?? 0]));
 });
 
@@ -55,6 +59,10 @@ export type CatalogFilters = {
 };
 
 export async function getProducts(filters: CatalogFilters = {}): Promise<ProductCardData[]> {
+  return cached(`catalog:products:${JSON.stringify(filters)}`, 30_000, () => loadProducts(filters));
+}
+
+async function loadProducts(filters: CatalogFilters): Promise<ProductCardData[]> {
   const where: Prisma.ProductWhereInput = { ...visible };
   if (filters.category) where.category = { slug: filters.category, active: true };
   if (filters.occasion) where.occasions = { has: filters.occasion };

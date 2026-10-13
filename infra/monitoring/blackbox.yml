@@ -1,0 +1,29 @@
+# Módulos de blackbox_exporter usados por prometheus.yml.
+# PLANTILLA NO PROBADA con blackbox_exporter real en este entorno.
+modules:
+  # Readiness de cada réplica por la red interna (sin TLS).
+  http_ready_internal:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      follow_redirects: false
+      headers:
+        User-Agent: reposteria-blackbox/1.0
+
+  # Sondas públicas por HTTPS como un visitante: exige TLS válido.
+  http_2xx_public:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+      follow_redirects: true
+      fail_if_not_ssl: true
+      headers:
+        User-Agent: reposteria-blackbox/1.0
+      tls_config:
+        insecure_skip_verify: false

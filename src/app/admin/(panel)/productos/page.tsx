@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
 import { fromPrice } from "@/lib/pricing";
 import { toggleProductActive } from "./actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Productos" };
 
@@ -18,6 +19,7 @@ const AVAILABILITY: Record<string, { label: string; tone: string }> = {
 };
 
 export default async function ProductsPage({ searchParams }: PageProps<"/admin/productos">) {
+  await requirePermission("catalog.manage");
   const params = await searchParams;
   const q = typeof params.q === "string" ? params.q.trim() : "";
   const category = typeof params.categoria === "string" ? params.categoria : "";

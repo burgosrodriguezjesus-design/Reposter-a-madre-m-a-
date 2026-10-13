@@ -1,0 +1,15 @@
+# Namespace de la aplicación.
+# PLANTILLA NO PROBADA EN UN CLÚSTER: revisar nombres, dominios e imágenes antes de aplicar.
+#
+# Pod Security Admission en modo "restricted": el API server rechaza cualquier pod
+# que se ejecute como root, escale privilegios, no tire todas las capabilities
+# o no use un perfil seccomp.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reposteria
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

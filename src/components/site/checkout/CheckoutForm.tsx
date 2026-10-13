@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Check, CreditCard, Gift, LoaderCircle, Lock, MapPin, Store, Tag, Truck, User } from "lucide-react";
 import clsx from "clsx";
 import { useCart } from "@/lib/cart-store";
@@ -40,8 +39,12 @@ function Step({ n, title, icon: Icon, children }: { n: number; title: string; ic
   );
 }
 
+function newIdempotencyKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function CheckoutForm({ config }: { config: Config }) {
-  const router = useRouter();
   const { lines } = useCart();
   const deliveryAllowed = config.deliveryEnabled && config.payments.card;
 
@@ -64,6 +67,7 @@ export function CheckoutForm({ config }: { config: Config }) {
   const [website, setWebsite] = useState("");
   const [rawPreview, setPreview] = useState<{ key: string; data: CheckoutPreview } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const idempotencyKey = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [calendarKey, setCalendarKey] = useState(0);
   const [submitted, setSubmitted] = useState(false);
@@ -159,10 +163,12 @@ export function CheckoutForm({ config }: { config: Config }) {
     if (missing.length || blocked || submitting) return;
     setSubmitting(true);
     setError(null);
+    // Clave de idempotencia: si la conexión falla y se reintenta, el servidor no duplica el pedido
+    idempotencyKey.current ??= newIdempotencyKey();
     try {
       const res = await fetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey.current },
         body: JSON.stringify({
           items,
           fulfillment,
@@ -180,16 +186,18 @@ export function CheckoutForm({ config }: { config: Config }) {
           website,
         }),
       });
-      const data = (await res.json()) as { redirectUrl?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { redirectUrl?: string; error?: string };
       if (!res.ok || !data.redirectUrl) {
+        // Rechazo definitivo (sin pedido creado): el siguiente intento lleva una clave nueva
+        if (res.status < 500 && res.status !== 429) idempotencyKey.current = null;
         setError(data.error || "No se pudo completar el pedido");
         if (res.status === 409) setCalendarKey((k) => k + 1);
         setSubmitting(false);
         return;
       }
       setSubmitted(true);
-      if (/^https?:\/\//.test(data.redirectUrl)) window.location.href = data.redirectUrl;
-      else router.push(data.redirectUrl);
+      // Navegación completa: el enlace con el token se canjea por una cookie privada (ver proxy)
+      window.location.assign(data.redirectUrl);
     } catch {
       setError("Error de conexión. Comprueba tu conexión e inténtalo de nuevo.");
       setSubmitting(false);

@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { slugify } from "@/lib/format";
 import { saveImage, UploadError } from "@/lib/storage";
@@ -9,7 +9,7 @@ import { bool, friendlyDbError, int, revalidateSite, str } from "@/lib/admin";
 import type { ActionResult } from "@/components/admin/forms";
 
 export async function saveCategory(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const id = str(formData, "id");
   const name = str(formData, "name", 80);
   const slug = slugify(str(formData, "slug", 80) || name);
@@ -34,6 +34,7 @@ export async function saveCategory(_prev: ActionResult, formData: FormData): Pro
       ? await db.category.update({ where: { id }, data: { ...data, ...(imageUrl ? { imageUrl } : {}) } })
       : await db.category.create({ data: { ...data, imageUrl } });
     savedId = saved.id;
+    await auditAdmin(admin, { action: id ? "category.update" : "category.create", entity: "Category", entityId: saved.id, details: { name, slug, active: data.active } });
   } catch (error) {
     if (error instanceof UploadError) return { ok: false, error: error.message };
     return { ok: false, error: friendlyDbError(error) };
@@ -44,11 +45,12 @@ export async function saveCategory(_prev: ActionResult, formData: FormData): Pro
 }
 
 export async function deleteCategory(formData: FormData) {
-  await requireAdmin();
+  const admin = await requirePermission("catalog.manage");
   const id = str(formData, "id");
   const count = await db.product.count({ where: { categoryId: id } });
   if (count > 0) redirect(`/admin/categorias/${id}?error=productos`);
   await db.category.delete({ where: { id } });
+  await auditAdmin(admin, { action: "category.delete", entity: "Category", entityId: id });
   revalidateSite();
   redirect("/admin/categorias");
 }

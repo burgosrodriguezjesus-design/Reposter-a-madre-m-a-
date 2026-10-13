@@ -4,8 +4,11 @@ import { notFound } from "next/navigation";
 import { CalendarPlus, Check, CircleCheck, Clock, LoaderCircle, MapPin, Star, XCircle } from "lucide-react";
 import clsx from "clsx";
 import { db } from "@/lib/db";
+import { safeEqual } from "@/lib/crypto";
+import { accessTokenFor } from "@/lib/access-token";
+import { log } from "@/lib/logger";
 import { getSettings } from "@/lib/settings";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, paymentFromSession } from "@/lib/stripe";
 import { markOrderPaid } from "@/lib/order-events";
 import { ORDER_STATUS, PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL, STATUS_FLOW } from "@/lib/order-status";
 import { formatDateTime, formatLocalDate, formatPrice, whatsappLink } from "@/lib/format";
@@ -27,13 +30,13 @@ function calendarLink(title: string, date: string, time: string, location: strin
 
 export default async function OrderPage({ params, searchParams }: PageProps<"/pedido/[number]">) {
   const [{ number }, query] = await Promise.all([params, searchParams]);
-  const token = typeof query.t === "string" ? query.t : "";
+  const token = await accessTokenFor("pedido", number, query.t);
   let order = await db.order.findUnique({
     where: { number },
     include: { items: true, history: { orderBy: { createdAt: "asc" } }, customer: true },
   });
   // Sin el token secreto no se muestra nada (protege los datos personales)
-  if (!order || !token || order.accessToken !== token) notFound();
+  if (!order || !token || !safeEqual(order.accessToken, token)) notFound();
 
   // Al volver de Stripe comprobamos el pago (por si el webhook aún no ha llegado)
   if (order.status === "PENDING_PAYMENT" && order.stripeSessionId) {
@@ -42,14 +45,14 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/pe
       try {
         const session = await stripe.checkout.sessions.retrieve(order.stripeSessionId);
         if (session.payment_status === "paid") {
-          await markOrderPaid(order.id, typeof session.payment_intent === "string" ? session.payment_intent : null);
+          await markOrderPaid(order.id, paymentFromSession(session));
           order = (await db.order.findUnique({
             where: { id: order.id },
             include: { items: true, history: { orderBy: { createdAt: "asc" } }, customer: true },
           }))!;
         }
       } catch (error) {
-        console.error("[pedido] No se pudo comprobar el pago", error);
+        log.warn("order.payment_check_failed", { error });
       }
     }
   }

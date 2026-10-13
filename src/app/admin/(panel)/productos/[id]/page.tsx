@@ -8,10 +8,12 @@ import { db } from "@/lib/db";
 import { parseOptionGroups } from "@/lib/pricing";
 import { ProductForm } from "../ProductForm";
 import { deleteProduct, updateProductImage, uploadProductImages } from "../actions";
+import { requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Editar producto" };
 
 export default async function EditProductPage({ params, searchParams }: PageProps<"/admin/productos/[id]">) {
+  await requirePermission("catalog.manage");
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const [product, categories, sold] = await Promise.all([
     db.product.findUnique({ where: { id }, include: { images: { orderBy: { sortOrder: "asc" } }, variants: { orderBy: { sortOrder: "asc" } } } }),

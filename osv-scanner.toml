@@ -1,0 +1,31 @@
+# ════════════════════════════════════════════════════════════════════
+#  Configuración de OSV-Scanner (.github/workflows/security.yml → osv-scanner).
+#  Analiza package-lock.json contra la base de datos OSV (GHSA, npm, etc.).
+#  Local:  osv-scanner scan source --lockfile=package-lock.json --config=osv-scanner.toml
+#
+#  Excepciones activas al final del archivo. Para aceptar temporalmente una vulnerabilidad:
+#    - solo si no es explotable en este proyecto o no hay versión corregida, y
+#    - siempre con ignoreUntil (máximo 90 días) y un motivo verificable,
+#  descomenta y adapta el bloque de ejemplo. Revisión obligatoria por CODEOWNERS.
+#  Las dependencias de desarrollo también se analizan: un paquete de build comprometido
+#  ejecuta código en CI con acceso al repositorio.
+# ════════════════════════════════════════════════════════════════════
+
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2027-01-10
+# reason = "Solo afecta a la función X de <paquete>, que la app no usa (ver issue #NN). Responsable: @burgosrodriguezjesus-design"
+
+# Ejemplo para excluir un paquete concreto (p. ej. una herramienta de desarrollo sin uso en runtime):
+# [[PackageOverrides]]
+# name = "<paquete>"
+# ecosystem = "npm"
+# ignore = true
+# effectiveUntil = 2027-01-10
+# reason = "Motivo verificable y responsable"
+
+# ── Excepciones activas ──
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2027-01-10
+reason = "braces 3.0.3 (DoS por patrones muy anidados) solo llega vía eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch: dependencia de DESARROLLO que expande patrones fijos del propio repositorio durante el lint, sin entrada de usuarios; no está en la imagen ni en el runtime (npm audit --omit=dev = 0). No existe versión corregida de braces a 2026-10-12. Revisar al caducar o cuando eslint-config-next actualice fast-glob. Responsable: @burgosrodriguezjesus-design"
