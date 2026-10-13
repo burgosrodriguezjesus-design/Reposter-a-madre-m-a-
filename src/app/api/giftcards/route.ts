@@ -6,7 +6,8 @@ import { getSettings } from "@/lib/settings";
 import { giftCardPurchaseSchema, firstError } from "@/lib/validation";
 import { limitByIp } from "@/lib/rate-limit";
 import { giftCardCode } from "@/lib/ids";
-import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
+import { paymentOptions } from "@/lib/checkout";
 import { siteUrl } from "@/lib/site-url";
 import { formatPrice } from "@/lib/format";
 import { sendEmail } from "@/lib/email";
@@ -24,8 +25,12 @@ export async function POST(request: Request) {
   if (!settings.marketing.giftCardAmounts.includes(input.amountCents)) {
     return NextResponse.json({ error: "Importe no disponible" }, { status: 400 });
   }
-  if (input.paymentMethod === "CARD" && !isStripeConfigured()) {
+  const payments = paymentOptions(settings);
+  if (input.paymentMethod === "CARD" && !payments.card) {
     return NextResponse.json({ error: "El pago online no está disponible. Elige pagar en tienda." }, { status: 400 });
+  }
+  if (input.paymentMethod === "IN_STORE" && !payments.inStore) {
+    return NextResponse.json({ error: "El pago en tienda no está disponible" }, { status: 400 });
   }
 
   let card = null;

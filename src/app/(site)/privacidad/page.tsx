@@ -2,12 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPage } from "@/components/site/LegalPage";
 import { getSettings } from "@/lib/settings";
+import { paymentOptions } from "@/lib/checkout";
 import { fullAddress } from "@/lib/structured-data";
 
 export const metadata: Metadata = { title: "Política de privacidad", alternates: { canonical: "/privacidad" } };
 
 export default async function PrivacyPage() {
-  const { business: b } = await getSettings();
+  const settings = await getSettings();
+  const { business: b } = settings;
+  const card = paymentOptions(settings).card;
   return (
     <LegalPage title="Política de privacidad" path="/privacidad">
       <p>
@@ -59,14 +62,18 @@ export default async function PrivacyPage() {
         </li>
       </ul>
       <h2>Datos de pago</h2>
-      <p>
-        Los pagos online los procesa Stripe Payments Europe Ltd. como proveedor independiente. Nosotros nunca vemos ni almacenamos el
-        número completo de tu tarjeta.
-      </p>
+      {card ? (
+        <p>
+          Los pagos online los procesa Stripe Payments Europe Ltd. como proveedor independiente. Nosotros nunca vemos ni almacenamos el
+          número completo de tu tarjeta.
+        </p>
+      ) : (
+        <p>En la web no se realizan pagos ni se piden datos de tarjeta: los pedidos se pagan al recogerlos en nuestro puesto.</p>
+      )}
       <h2>Destinatarios y encargados del tratamiento</h2>
       <p>
         No cedemos tus datos a terceros salvo obligación legal. Utilizamos proveedores que actúan como encargados del tratamiento con las
-        garantías adecuadas: alojamiento web y base de datos, envío de correo electrónico, pasarela de pago (Stripe) y, en su caso,
+        garantías adecuadas: alojamiento web y base de datos, envío de correo electrónico{card ? ", pasarela de pago (Stripe)" : ""} y, en su caso,
         WhatsApp Business (Meta). Algunos pueden realizar transferencias internacionales amparadas en el Marco de Privacidad de Datos UE-EE.
         UU. o en cláusulas contractuales tipo.
       </p>

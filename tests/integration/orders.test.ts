@@ -184,3 +184,19 @@ describe("pagos", () => {
     expect(r.filter((x) => x.ok)).toHaveLength(1);
   });
 });
+
+describe("solo pago en tienda (pago online desactivado)", () => {
+  it("rechaza pedidos con pago online aunque se fuerce la petición", async () => {
+    const ordering = (await getSettings()).ordering;
+    await saveSettings("ordering", { ...ordering, cardPaymentEnabled: false });
+    try {
+      const product = await makeProduct(null);
+      const slot = await openSlot(0);
+      await expect(createOrder({ ...orderInput(product.id, slot, 900), paymentMethod: "CARD" })).rejects.toThrow(CheckoutError);
+      const { number } = await createOrder(orderInput(product.id, slot, 901));
+      expect((await db.order.findUniqueOrThrow({ where: { number } })).paymentMethod).toBe("IN_STORE");
+    } finally {
+      await saveSettings("ordering", ordering);
+    }
+  });
+});

@@ -58,7 +58,11 @@ export function buildFaqs(
       q: "¿Cómo se paga el pedido?",
       a: [
         payments.card ? "Puedes pagar online con tarjeta, Apple Pay o Google Pay a través de Stripe, una pasarela de pago segura (nosotros no vemos ni guardamos los datos de tu tarjeta)." : "",
-        payments.inStore ? "Si recoges en tienda, también puedes reservar y pagar al recoger, en efectivo o con tarjeta." : "",
+        payments.inStore
+          ? payments.card
+            ? "Si recoges en tienda, también puedes reservar y pagar al recoger, en efectivo o con tarjeta."
+            : "En la web no se paga nada: reservas el pedido y lo pagas al recogerlo en nuestro puesto, en efectivo o con tarjeta."
+          : "",
         "También aceptamos nuestras tarjetas regalo.",
       ]
         .filter(Boolean)

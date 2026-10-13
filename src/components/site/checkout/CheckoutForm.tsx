@@ -539,7 +539,9 @@ export function CheckoutForm({ config }: { config: Config }) {
             {submitting ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-4" />}
             {!needsPayment || paymentMethod === "IN_STORE" ? "Confirmar pedido" : `Pagar ${preview ? formatPrice(total) : ""} y confirmar`}
           </button>
-          <p className="text-center text-xs text-cocoa-500">No guardamos los datos de tu tarjeta: el pago lo procesa Stripe de forma segura.</p>
+          {needsPayment && paymentMethod === "CARD" && (
+            <p className="text-center text-xs text-cocoa-500">No guardamos los datos de tu tarjeta: el pago lo procesa Stripe de forma segura.</p>
+          )}
         </div>
       </aside>
     </form>

@@ -6,6 +6,7 @@ import { LocationBlock } from "@/components/site/LocationBlock";
 import { DemoBadge, SectionHeading, SmartImage, Stars } from "@/components/site/ui";
 import { getActivePromotions, getApprovedReviews, getBestsellers, getCategories, getNewProducts, getReviewStats } from "@/lib/catalog";
 import { getSettings } from "@/lib/settings";
+import { paymentOptions } from "@/lib/checkout";
 import { getOpeningSchedule } from "@/lib/schedule";
 
 export const revalidate = 300;
@@ -94,7 +95,9 @@ export default async function HomePage() {
             { icon: ChefHat, title: "Hecho a mano", text: "Cada día en nuestro obrador" },
             { icon: Leaf, title: "Ingredientes reales", text: "Mantequilla, huevos camperos y fruta fresca" },
             { icon: Store, title: "Recogida sin esperas", text: "Tú eliges día y hora" },
-            { icon: ShieldCheck, title: "Pago seguro", text: "Online o al recoger en tienda" },
+            paymentOptions(settings).card
+              ? { icon: ShieldCheck, title: "Pago seguro", text: "Online o al recoger en tienda" }
+              : { icon: ShieldCheck, title: "Pagas al recoger", text: "En el puesto, en efectivo o con tarjeta" },
           ].map((item) => (
             <div key={item.title} className="flex items-start gap-3">
               <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-gold-400/70 text-gold-600">

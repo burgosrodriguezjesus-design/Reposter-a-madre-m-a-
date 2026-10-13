@@ -2,11 +2,14 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/site/LegalPage";
 import { CookieSettingsLink } from "@/components/site/CookieConsent";
 import { getSettings } from "@/lib/settings";
+import { paymentOptions } from "@/lib/checkout";
 
 export const metadata: Metadata = { title: "Política de cookies", alternates: { canonical: "/cookies" } };
 
 export default async function CookiesPage() {
-  const { business: b, seo } = await getSettings();
+  const settings = await getSettings();
+  const { business: b, seo } = settings;
+  const card = paymentOptions(settings).card;
   return (
     <LegalPage title="Política de cookies" path="/cookies">
       <p>
@@ -29,9 +32,11 @@ export default async function CookiesPage() {
         <li>
           <strong>Sesión del panel</strong> («__Host-rmm_admin»): solo para el personal de {b.name} que accede al panel de gestión.
         </li>
-        <li>
-          <strong>Pasarela de pago:</strong> Stripe puede usar cookies propias en su página de pago para prevenir el fraude.
-        </li>
+        {card && (
+          <li>
+            <strong>Pasarela de pago:</strong> Stripe puede usar cookies propias en su página de pago para prevenir el fraude.
+          </li>
+        )}
       </ul>
       <h2>Cookies de analítica (solo con tu consentimiento)</h2>
       {seo.gaMeasurementId ? (

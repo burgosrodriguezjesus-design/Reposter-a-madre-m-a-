@@ -64,7 +64,7 @@ export const DEFAULT_ORDERING: OrderingSettings = {
   deliveryEnabled: false,
   deliveryInfo: "",
   payInStoreEnabled: true,
-  cardPaymentEnabled: true,
+  cardPaymentEnabled: false,
   autoAcceptStandardOrders: false,
   cancellationSummary:
     "Pedidos estándar: cancelación gratuita hasta 48 h antes. Tartas personalizadas: cancelación gratuita hasta 72 h antes; después no es posible porque ya hemos comprado ingredientes y preparado la decoración.",

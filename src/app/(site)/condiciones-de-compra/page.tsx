@@ -2,12 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPage } from "@/components/site/LegalPage";
 import { getSettings } from "@/lib/settings";
+import { paymentOptions } from "@/lib/checkout";
 import { fullAddress } from "@/lib/structured-data";
 
 export const metadata: Metadata = { title: "Condiciones de compra", alternates: { canonical: "/condiciones-de-compra" } };
 
 export default async function TermsPage() {
-  const { business: b, ordering: o, marketing: m } = await getSettings();
+  const settings = await getSettings();
+  const { business: b, ordering: o, marketing: m } = settings;
+  const payments = paymentOptions(settings);
   return (
     <LegalPage title="Condiciones de compra" path="/condiciones-de-compra">
       <p>
@@ -34,8 +37,10 @@ export default async function TermsPage() {
       </p>
       <h2>4. Pago</h2>
       <p>
-        Puedes pagar online con tarjeta mediante Stripe (pago seguro; no almacenamos los datos de tu tarjeta) o, cuando esté disponible para
-        recogida en tienda, reservar y pagar al recoger. {m.giftCardsEnabled ? "También se aceptan tarjetas regalo, válidas durante el plazo indicado en ellas." : ""}
+        {payments.card
+          ? "Puedes pagar online con tarjeta mediante Stripe (pago seguro; no almacenamos los datos de tu tarjeta) o reservar y pagar al recoger en tienda."
+          : "No se paga nada en la web: reservas tu pedido online y lo pagas al recogerlo en nuestro puesto, en efectivo o con tarjeta."}{" "}
+        {m.giftCardsEnabled ? "También se aceptan tarjetas regalo, válidas durante el plazo indicado en ellas." : ""}
       </p>
       <h2>5. Recogida{o.deliveryEnabled ? " y entrega" : ""}</h2>
       <p>
