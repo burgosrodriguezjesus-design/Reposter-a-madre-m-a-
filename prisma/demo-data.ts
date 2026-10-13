@@ -340,7 +340,7 @@ export const DEMO_PRODUCTS: DemoProduct[] = [
     imageAlt: "Tarta de boda blanca de tres pisos con perlas y cascada de flores",
     short: "Elegancia clásica con cascada de flores. Incluye prueba de sabores.",
     description:
-      "Tres pisos cubiertos de fondant blanco marfil con perlas de azúcar y una cascada de flores naturales en los tonos de vuestra boda. Cada piso puede tener un sabor distinto.\n\nIncluye una prueba de sabores para dos personas en el obrador y la entrega y montaje en el lugar de celebración dentro de nuestra zona de reparto.",
+      "Tres pisos cubiertos de fondant blanco marfil con perlas de azúcar y una cascada de flores naturales en los tonos de vuestra boda. Cada piso puede tener un sabor distinto.\n\nIncluye una prueba de sabores para dos personas en nuestro puesto. El montaje en el lugar de celebración se presupuesta aparte: consúltanos.",
     price: 28000,
     variants: [
       { name: "Tres pisos", servings: "60-70 raciones", price: 28000 },
