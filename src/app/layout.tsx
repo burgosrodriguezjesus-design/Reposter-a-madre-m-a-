@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Great_Vibes, Montserrat } from "next/font/google";
 import { getSettings } from "@/lib/settings";
 import { siteUrl } from "@/lib/site-url";
+import { isProductionEnv } from "@/lib/app-env";
 import "./globals.css";
 import "@/lib/taint";
 
@@ -34,6 +35,8 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     twitter: { card: "summary_large_image" },
     verification: seo.googleSiteVerification ? { google: seo.googleSiteVerification } : undefined,
+    // Solo la web de producción se indexa; las versiones de prueba llevan noindex
+    robots: isProductionEnv() ? undefined : { index: false, follow: false },
     formatDetection: { telephone: false, address: false, email: false },
   };
 }

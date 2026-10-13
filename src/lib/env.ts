@@ -1,4 +1,5 @@
 import { loadKeyring } from "@/lib/crypto";
+import { isProductionEnv } from "@/lib/app-env";
 
 /**
  * Validación de la configuración al arrancar el servidor (protección frente a errores de
@@ -7,7 +8,7 @@ import { loadKeyring } from "@/lib/crypto";
  */
 export function checkEnvironment(): { errors: string[]; warnings: string[] } {
   const env = process.env;
-  const production = env.APP_ENV === "production" || (env.NODE_ENV === "production" && env.APP_ENV !== "staging" && env.APP_ENV !== "development");
+  const production = isProductionEnv(env);
   const errors: string[] = [];
   const warnings: string[] = [];
   const need = (cond: boolean, msg: string, critical = production) => {
