@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blindIndex, decrypt, encrypt, isEncrypted, needsReencryption, normalizePhone, safeEqual } from "@/lib/crypto";
+import { blindIndex, decrypt, decryptBuffer, encrypt, encryptBuffer, isEncrypted, isEncryptedBuffer, needsReencryption, normalizePhone, safeEqual } from "@/lib/crypto";
 
 describe("cifrado AES-256-GCM", () => {
   it("cifra y descifra; cada cifrado es distinto (IV aleatorio)", () => {
@@ -54,5 +54,29 @@ describe("índices ciegos", () => {
     expect(safeEqual("abc", "abc")).toBe(true);
     expect(safeEqual("abc", "abd")).toBe(false);
     expect(safeEqual("abc", "abcd")).toBe(false);
+  });
+});
+
+describe("cifrado de archivos (fotos privadas)", () => {
+  const photo = Buffer.from("RIFF....WEBPVP8 datos de imagen de prueba con GPS 40.4,-3.7");
+  it("cifra con AES-256-GCM y descifra con el mismo contexto", () => {
+    const sealed = encryptBuffer(photo, "media:references/2026-10/a.webp");
+    expect(isEncryptedBuffer(sealed)).toBe(true);
+    expect(sealed.includes(Buffer.from("WEBP"))).toBe(false);
+    expect(decryptBuffer(sealed, "media:references/2026-10/a.webp").equals(photo)).toBe(true);
+  });
+  it("rechaza un archivo manipulado o movido a otra ruta", () => {
+    const sealed = encryptBuffer(photo, "media:references/2026-10/a.webp");
+    expect(() => decryptBuffer(sealed, "media:references/2026-10/b.webp")).toThrow();
+    const tampered = Buffer.from(sealed);
+    tampered[tampered.length - 1] ^= 1;
+    expect(() => decryptBuffer(tampered, "media:references/2026-10/a.webp")).toThrow();
+  });
+  it("los archivos antiguos sin cifrar se devuelven tal cual", () => {
+    expect(decryptBuffer(photo, "media:x").equals(photo)).toBe(true);
+  });
+  it("blindIndex de tokens no normaliza y no revela el token", () => {
+    expect(blindIndex("token", "AbC")).not.toBe(blindIndex("token", "abc"));
+    expect(blindIndex("token", "secreto-largo")).not.toContain("secreto");
   });
 });

@@ -26,6 +26,19 @@ export default async function PrivacyPage() {
           legal: ejecución del contrato (art. 6.1.b RGPD).
         </li>
         <li>
+          <strong>Ficha de cliente y programa de fidelización:</strong> al confirmar un pedido guardamos una ficha con tu nombre, email,
+          teléfono, número de pedidos, importe acumulado y sellos de fidelización, para reconocerte en próximos pedidos y aplicar las
+          ventajas del programa. Base legal: ejecución del contrato (art. 6.1.b RGPD).
+        </li>
+        <li>
+          <strong>Tarjetas regalo:</strong> nombre y email de quien la compra y, si se indica, de quien la recibe, y el mensaje. Base
+          legal: ejecución del contrato (art. 6.1.b RGPD).
+        </li>
+        <li>
+          <strong>Ejercicio de tus derechos:</strong> email y detalles de tu solicitud, para atenderla y poder demostrar que lo hicimos.
+          Base legal: obligación legal (art. 6.1.c RGPD).
+        </li>
+        <li>
           <strong>Facturación y obligaciones legales:</strong> conservamos los datos de las ventas durante los plazos exigidos por la
           normativa fiscal y mercantil (art. 6.1.c RGPD).
         </li>
@@ -60,8 +73,14 @@ export default async function PrivacyPage() {
       <h2>Plazos de conservación</h2>
       <ul>
         <li>Datos de pedidos: 6 años desde la venta (obligaciones contables, art. 30 del Código de Comercio). Después se anonimizan automáticamente.</li>
-        <li>Fotografías de referencia: se borran automáticamente 90 días después de la fecha del pedido.</li>
+        <li>
+          Fotografías de referencia: se borran automáticamente 90 días después de la fecha del pedido; las enviadas con una solicitud de
+          presupuesto, 150 días después de la solicitud.
+        </li>
         <li>Solicitudes de presupuesto no aceptadas: 12 meses.</li>
+        <li>Tarjetas regalo: 6 años desde la compra; después se anonimizan (se conservan solo importe y estado).</li>
+        <li>Opiniones no publicadas: 12 meses. Las publicadas, mientras sigan publicadas o hasta que pidas retirarlas.</li>
+        <li>Solicitudes de ejercicio de derechos: 3 años.</li>
         <li>Carritos guardados para recordatorio: 30 días.</li>
         <li>Fichas de cliente sin pedidos ni consentimiento: 24 meses sin actividad.</li>
         <li>Comunicaciones comerciales y recordatorios: hasta que retires tu consentimiento.</li>
@@ -69,8 +88,10 @@ export default async function PrivacyPage() {
       </ul>
       <h2>Cómo protegemos tus datos</h2>
       <p>
-        Toda la comunicación viaja cifrada (HTTPS con TLS 1.2 o 1.3). Tu nombre, email, teléfono, dirección, notas y fotos se guardan cifrados
-        (AES-256) y solo puede verlos el personal autorizado de la repostería, con verificación en dos pasos y con registro de cada acceso. Las
+        Toda la comunicación viaja cifrada (HTTPS con TLS 1.2 o 1.3). Tu nombre, email, teléfono, dirección, notas, dedicatorias, fotos y
+        los enlaces de acceso a tus pedidos se guardan cifrados (AES-256) y solo puede verlos el personal autorizado de la repostería, con
+        verificación en dos pasos. Queda registrado quién abre la ficha de un pedido o presupuesto, consulta las solicitudes de privacidad,
+        busca clientes o pedidos y quién exporta o borra datos. Las
         copias de seguridad también están cifradas. Si se produjera una brecha de seguridad que te afectara, lo notificaríamos a la Agencia
         Española de Protección de Datos en 72 horas y, cuando proceda, también a ti.
       </p>

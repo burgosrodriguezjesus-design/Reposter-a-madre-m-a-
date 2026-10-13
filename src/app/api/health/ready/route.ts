@@ -3,7 +3,8 @@ import { pingRedis } from "@/lib/redis";
 import { eventLoopDelayMs } from "@/lib/load";
 
 /**
- * Preparada para recibir tráfico: base de datos accesible y Redis (si se usa).
+ * Preparada para recibir tráfico: base de datos accesible. Redis se informa pero no la hace
+ * fallar (sin Redis la app sigue con límites por instancia).
  * La usan el balanceador, Kubernetes y la monitorización externa. Sin datos sensibles.
  */
 export const dynamic = "force-dynamic";

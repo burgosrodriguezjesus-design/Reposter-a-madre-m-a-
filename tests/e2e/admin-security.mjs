@@ -21,7 +21,9 @@ const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePa
 const newCtx = (ua) => browser.newContext({ locale: "es-ES", ...(ua ? { userAgent: ua } : {}) });
 
 async function login(page, mail, pass) {
-  await page.goto(`${B}/admin/login`);
+  const res = await page.goto(`${B}/admin/login`);
+  // Con la IP penalizada por la fuerza bruta el proxy responde 429 sin formulario: eso ES el bloqueo
+  if (res?.status() === 429 || !(await page.locator('input[name="email"]').count())) return "bloqueado";
   await page.fill('input[name="email"]', mail);
   await page.fill('input[name="password"]', pass);
   await page.click('button[type="submit"]');
@@ -110,6 +112,19 @@ const sp = await sctx.newPage();
 await login(sp, staffEmail, temp);
 check("El empleado también debe activar el segundo factor", sp.url().includes("/admin/login/configurar"), sp.url());
 await enroll(sp);
+// Contraseña provisional: hasta cambiarla solo puede entrar a «Mi cuenta y seguridad»
+await sp.goto(`${B}/admin/pedidos`);
+check("Con contraseña provisional el panel exige cambiarla", sp.url().includes("/admin/seguridad?cambiar=1"), sp.url());
+const blockedApi = await sp.request.get(`${B}/api/admin/clientes.csv`);
+check("Con contraseña provisional la API del panel responde 403", blockedApi.status() === 403, String(blockedApi.status()));
+const staffPassword = `Frase larga de prueba ${Date.now()} con tartas`;
+await sp.fill('input[name="current"]', temp);
+await sp.fill('input[name="next"]', staffPassword);
+await sp.fill('input[name="confirm"]', staffPassword);
+await sp.click('button:has-text("Cambiar contraseña")');
+await sp.waitForSelector("text=Contraseña cambiada", { timeout: 15000 });
+await sp.goto(`${B}/admin/pedidos`);
+check("Tras cambiarla, el empleado entra al panel", sp.url().endsWith("/admin/pedidos"), sp.url());
 for (const path of ["/admin/ajustes", "/admin/usuarios", "/admin/clientes", "/admin/auditoria", "/admin/productos", "/admin/privacidad"]) {
   await sp.goto(`${B}${path}`);
   check(`Empleado sin permiso para ${path} → denegado`, sp.url().includes("sin-permiso=1"), sp.url());
@@ -121,19 +136,9 @@ check("Empleado: sí puede ver pedidos", sp.url().endsWith("/admin/pedidos"));
 const navText = await sp.locator("aside").textContent();
 check("Empleado: el menú no muestra secciones sin permiso", !/Usuarios y permisos|Ajustes|Clientes/.test(navText ?? ""));
 
-// 8. Fuerza bruta contra la cuenta del empleado
-const bctx = await newCtx();
-const bp = await bctx.newPage();
-let blocked = false;
-for (let i = 0; i < 7; i++) {
-  await login(bp, staffEmail, `mala-${i}-contraseña`);
-  if (await bp.locator("text=Demasiados intentos").isVisible()) { blocked = true; break; }
-}
-await login(bp, staffEmail, temp);
-check("Fuerza bruta: la cuenta se bloquea y ni la contraseña correcta entra", blocked || !bp.url().includes("/admin/login/"), bp.url());
-
 // 9. Auditoría
-await page.goto(`${B}/admin/auditoria`);
+const auditRes = await page.goto(`${B}/admin/auditoria`);
+check("El propietario abre el registro de actividad", auditRes?.status() === 200 && page.url().endsWith("/admin/auditoria"), `${auditRes?.status()} ${page.url()}`);
 await page.click('button:has-text("Verificar integridad")');
 await page.waitForSelector("text=Íntegro", { timeout: 15000 });
 check("Registro de auditoría íntegro y verificable", true);
@@ -148,6 +153,17 @@ const replay = await newCtx();
 await replay.addCookies([{ ...before }]);
 const r = await replay.request.get(`${B}/api/admin/clientes.csv`);
 check("Tras cerrar sesión, la cookie antigua ya no sirve (sesión revocada en servidor)", r.status() === 401, String(r.status()));
+
+// 11. Fuerza bruta (al final: penaliza la IP de la prueba, que es la misma que la del propietario)
+const bctx = await newCtx();
+const bp = await bctx.newPage();
+let blocked = false;
+for (let i = 0; i < 7; i++) {
+  const r = await login(bp, staffEmail, `mala-${i}-contraseña`);
+  if (r === "bloqueado" || (await bp.locator("text=Demasiados intentos").isVisible())) { blocked = true; break; }
+}
+await login(bp, staffEmail, staffPassword);
+check("Fuerza bruta: la cuenta se bloquea y ni la contraseña correcta entra", blocked || !bp.url().includes("/admin/login/"), bp.url());
 
 await browser.close();
 const failed = results.filter((r) => !r.ok).length;

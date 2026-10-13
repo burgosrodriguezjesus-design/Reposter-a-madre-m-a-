@@ -42,7 +42,7 @@ if ! curl -fsS --max-time 5 "$BASE/api/health"; then
 fi
 echo
 
-# Preparada (/api/health/ready: BD + Redis). Debe dar 200 con la BD de pruebas.
+# Preparada (/api/health/ready: BD). Debe dar 200 con la BD de pruebas.
 for _ in $(seq 1 15); do
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/api/health/ready" || true)"
   [ "$code" = "200" ] && break

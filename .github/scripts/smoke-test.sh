@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════════════
-#  Prueba de humo tras un despliegue: /api/health (vida) y /api/health/ready (BD + Redis).
+#  Prueba de humo tras un despliegue: /api/health (vida) y /api/health/ready (BD).
 #  Uso:  .github/scripts/smoke-test.sh https://www.tudominio.es [intentos] [espera_s]
 #  Variables opcionales:
 #    VERCEL_AUTOMATION_BYPASS_SECRET  cabecera para saltar la Deployment Protection de Vercel

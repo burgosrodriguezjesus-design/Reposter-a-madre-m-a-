@@ -23,8 +23,13 @@ if [ -f "$FILE.sha256" ]; then
     exit 1
   fi
   echo "Huella SHA-256 verificada"
+elif [ "${ALLOW_MISSING_CHECKSUM:-}" = "1" ]; then
+  # age autentica el contenido cifrado (una modificación hace fallar el descifrado), pero sin la
+  # huella no se detecta que se ha cambiado la copia ENTERA por otra cifrada con la misma clave.
+  echo "AVISO: sin fichero .sha256 (ALLOW_MISSING_CHECKSUM=1); se continúa sin verificar la huella" >&2
 else
-  echo "AVISO: no hay fichero .sha256; no se puede verificar la integridad" >&2
+  echo "ERROR: falta $FILE.sha256. Recupéralo junto a la copia o, si lo asumes, repite con ALLOW_MISSING_CHECKSUM=1" >&2
+  exit 1
 fi
 
 age --decrypt --identity "$BACKUP_AGE_IDENTITY" "$FILE" \

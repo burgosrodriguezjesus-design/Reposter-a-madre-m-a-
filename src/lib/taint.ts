@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { experimental_taintUniqueValue as taintUniqueValue } from "react";
 
 /**
@@ -19,11 +20,22 @@ const SECRETS = [
   "REDIS_URL",
   "ADMIN_PASSWORD",
   "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
+  "ALERT_WEBHOOK_URL",
 ];
 
 if (typeof taintUniqueValue === "function") {
   for (const name of SECRETS) {
     const value = process.env[name];
     if (value && value.length >= 8) taintUniqueValue(`No se puede enviar ${name} al navegador`, process, value);
+    // También las claves leídas de archivo (*_FILE, secretos montados)
+    const file = process.env[`${name}_FILE`];
+    if (file) {
+      try {
+        const fromFile = readFileSync(file, "utf8").trim();
+        if (fromFile.length >= 8) taintUniqueValue(`No se puede enviar ${name} al navegador`, process, fromFile);
+      } catch {
+        // crypto.ts informa del error al cargar la clave
+      }
+    }
   }
 }

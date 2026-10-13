@@ -95,7 +95,7 @@ Necesitas **Node.js 20.9 o superior** y **Docker** (para la base de datos) o un 
 # 1. Instalar dependencias
 npm install
 
-# 2. Crear el archivo de configuración y rellenarlo (mínimo: AUTH_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD)
+# 2. Crear el archivo de configuración y rellenarlo (mínimo: claves de `npm run keys:generate`, ADMIN_EMAIL, ADMIN_PASSWORD)
 cp .env.example .env
 #   Genera el secreto con:  openssl rand -base64 48
 
@@ -138,7 +138,7 @@ Sube este repositorio a tu cuenta de GitHub (si no lo está ya).
 2. No hace falta tocar el comando de compilación: Vercel ejecuta automáticamente el script `vercel-build` de `package.json`,
    que aplica las migraciones de la base de datos antes de compilar.
 3. En **Environment Variables** añade las de la [tabla](#variables-de-entorno), como mínimo:
-   `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STORAGE_DRIVER=supabase`,
+   `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL`, `DIRECT_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STORAGE_DRIVER=supabase`,
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET=uploads`, `CRON_SECRET`.
 4. **Deploy**.
 5. Carga los datos iniciales **una vez** desde tu ordenador, apuntando a la base de datos de producción:
@@ -240,7 +240,6 @@ Los valores iniciales también están en `src/config/defaults.ts` y los textos d
 |---|---|---|
 | `NEXT_PUBLIC_SITE_URL` | ✅ | URL pública sin barra final (`https://www.tudominio.es`). |
 | `DATABASE_URL` / `DIRECT_URL` | ✅ | Conexiones a PostgreSQL (en Supabase: pooler y directa). |
-| `AUTH_SECRET` | ✅ | Secreto de 32+ caracteres para firmar las sesiones del panel. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | ✅ (seed) | Primer usuario del panel (contraseña de 10+ caracteres). |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Pagos online | Sin ellas solo hay pago en tienda. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | Correos | Sin ellas los correos se muestran en el registro del servidor. |

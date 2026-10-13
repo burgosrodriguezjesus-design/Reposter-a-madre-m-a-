@@ -190,7 +190,7 @@ WantedBy=timers.target
 ### App caída o sin readiness
 
 1. ¿Afecta a una réplica o a todas? `docker compose ps` / `kubectl -n reposteria get pods`.
-2. `/api/health` (vida, sin BD) vs `/api/health/ready` (BD + Redis): si solo falla
+2. `/api/health` (vida, sin BD) vs `/api/health/ready` (BD; Redis solo informativo): si solo falla
    readiness, sigue con [Base de datos](#base-de-datos) o [Redis](#redis).
 3. Logs de la réplica (errores de arranque: la app **falla al arrancar** si falta una
    variable obligatoria en producción, ver `src/lib/env.ts`).
@@ -212,7 +212,7 @@ WantedBy=timers.target
 <a id="redis"></a>
 ### Redis
 
-1. Sin Redis el rate limit global y las cachés se degradan y la readiness falla.
+1. Sin Redis los límites de peticiones pasan a ser por instancia (más permisivos con varias réplicas); la readiness NO falla y la app sigue atendiendo. Redis no se usa como caché.
 2. `RedisMemoryHigh`: `INFO memory`; fija `maxmemory` y `maxmemory-policy`
    (`volatile-lru` si solo hay claves con TTL). En Upstash, revisa el plan.
 

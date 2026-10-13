@@ -91,6 +91,40 @@ export function decrypt(value: string, context: string): string {
   return Buffer.concat([decipher.update(body.subarray(0, body.length - TAG_BYTES)), decipher.final()]).toString("utf8");
 }
 
+// Archivos binarios (fotos privadas de clientes): MAGIC | len(kid) | kid | iv | tag | cifrado
+const FILE_MAGIC = Buffer.from("RMMENC1\0", "latin1");
+
+export function isEncryptedBuffer(data: Buffer): boolean {
+  return data.length > FILE_MAGIC.length && data.subarray(0, FILE_MAGIC.length).equals(FILE_MAGIC);
+}
+
+/** Cifra un archivo con AES-256-GCM y la clave activa; `context` (AAD) lo liga a su ruta. */
+export function encryptBuffer(data: Buffer, context: string): Buffer {
+  const { active, keys } = loadKeyring();
+  const kid = Buffer.from(active, "utf8");
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv("aes-256-gcm", keys.get(active)!, iv);
+  cipher.setAAD(Buffer.from(context, "utf8"));
+  const body = Buffer.concat([cipher.update(data), cipher.final()]);
+  return Buffer.concat([FILE_MAGIC, Buffer.from([kid.length]), kid, iv, cipher.getAuthTag(), body]);
+}
+
+/** Descifra un archivo de encryptBuffer; los archivos antiguos sin cifrar se devuelven tal cual. */
+export function decryptBuffer(data: Buffer, context: string): Buffer {
+  if (!isEncryptedBuffer(data)) return data;
+  let at = FILE_MAGIC.length;
+  const kidLen = data[at++];
+  const kid = data.subarray(at, (at += kidLen)).toString("utf8");
+  const key = loadKeyring().keys.get(kid);
+  if (!key) throw new Error(`Clave de cifrado desconocida (${kid})`);
+  const iv = data.subarray(at, (at += IV_BYTES));
+  const tag = data.subarray(at, (at += TAG_BYTES));
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAAD(Buffer.from(context, "utf8"));
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data.subarray(at)), decipher.final()]);
+}
+
 /** ¿Está cifrado con una clave distinta de la activa? (para la rotación) */
 export function needsReencryption(value: string): boolean {
   return !value.startsWith(`${PREFIX}${activeKeyId()}:`);
@@ -109,8 +143,9 @@ export function normalizePhone(phone: string): string {
 }
 
 /** Índice ciego: permite buscar por igualdad sin poder recuperar el dato original. */
-export function blindIndex(kind: "email" | "phone", value: string): string {
-  const normalized = kind === "email" ? normalizeEmail(value) : normalizePhone(value);
+export function blindIndex(kind: "email" | "phone" | "token", value: string): string {
+  // "token": secretos de enlaces (baja, carrito) que se buscan por igualdad exacta
+  const normalized = kind === "email" ? normalizeEmail(value) : kind === "phone" ? normalizePhone(value) : value;
   return createHmac("sha256", loadKeyring().hashKey).update(`${kind}:${normalized}`).digest("base64url");
 }
 

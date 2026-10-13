@@ -18,6 +18,7 @@ export type AdminContext = {
   name: string;
   role: AdminRole;
   sessionId: string;
+  mustChangePassword: boolean;
 };
 
 const toContext = (s: SessionWithUser): AdminContext => ({
@@ -26,6 +27,7 @@ const toContext = (s: SessionWithUser): AdminContext => ({
   name: s.user.name,
   role: s.user.role,
   sessionId: s.id,
+  mustChangePassword: s.user.mustChangePassword,
 });
 
 /** Sesión de la petición actual (completa o pendiente de MFA). */
@@ -64,6 +66,8 @@ async function denied(admin: AdminContext, permission: Permission) {
 /** Para páginas y Server Actions: sin permiso → vuelve al inicio del panel con aviso. */
 export async function requirePermission(permission: Permission): Promise<AdminContext> {
   const admin = await requireAdmin();
+  // Con contraseña provisional solo se puede entrar a «Mi cuenta y seguridad» (requireAdmin)
+  if (admin.mustChangePassword) redirect("/admin/seguridad?cambiar=1");
   if (!can(admin.role, permission)) {
     await denied(admin, permission);
     redirect("/admin?sin-permiso=1");
@@ -75,6 +79,7 @@ export async function requirePermission(permission: Permission): Promise<AdminCo
 export async function apiRequirePermission(permission: Permission): Promise<AdminContext | Response> {
   const admin = await getAdmin();
   if (!admin) return Response.json({ error: "No autorizado" }, { status: 401 });
+  if (admin.mustChangePassword) return Response.json({ error: "Cambia antes tu contraseña provisional" }, { status: 403 });
   if (!can(admin.role, permission)) {
     await denied(admin, permission);
     return Response.json({ error: "Sin permiso" }, { status: 403 });

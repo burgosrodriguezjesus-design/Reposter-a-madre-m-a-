@@ -29,7 +29,7 @@ export async function changePassword(_prev: ActionResult, formData: FormData): P
   }
   if (await isBreachedPassword(next)) return { ok: false, error: "Esa contraseña aparece en filtraciones públicas de datos. Elige otra." };
   // passwordChangedAt invalida todas las sesiones anteriores; se abre una nueva para este navegador
-  await db.adminUser.update({ where: { id: admin.id }, data: { passwordHash: await hashPassword(next), passwordChangedAt: new Date() } });
+  await db.adminUser.update({ where: { id: admin.id }, data: { passwordHash: await hashPassword(next), passwordChangedAt: new Date(), mustChangePassword: false } });
   await revokeSession(admin.sessionId, "cambio de contraseña");
   await createSession(admin.id, true);
   await auditAdmin(admin, { action: "auth.password_changed", severity: "warning" });

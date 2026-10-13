@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { auditAdmin, requirePermission } from "@/lib/auth";
 import { eraseSubjectData } from "@/lib/privacy";
+import { kickJobs } from "@/lib/job-handlers";
 import type { ActionResult } from "@/components/admin/forms";
 
 export async function resolveRequest(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
@@ -16,6 +17,7 @@ export async function resolveRequest(_prev: ActionResult, formData: FormData): P
 
   if (intent === "erase") {
     const result = await eraseSubjectData(request.emailHash);
+    kickJobs(); // borrado de fotos encolado en la misma transacción
     await db.dataRequest.update({
       where: { id },
       data: { status: "COMPLETED", resolvedAt: new Date(), resolution: resolution || `Supresión ejecutada: ${result.anonymizedOrders} pedidos anonimizados` },

@@ -13,22 +13,24 @@ import { blindIndex, decrypt, encrypt } from "@/lib/crypto";
  * Las consultas SQL en bruto ($queryRaw) NO pasan por aquí: no deben leer columnas cifradas.
  */
 export const ENCRYPTED_FIELDS: Record<string, readonly string[]> = {
-  Order: ["customerName", "customerEmail", "customerPhone", "address", "notes"],
+  // Los tokens de enlaces también se cifran: con un volcado de la BD sin las claves no se puede
+  // abrir ningún pedido, presupuesto ni enlace de baja.
+  Order: ["customerName", "customerEmail", "customerPhone", "address", "notes", "accessToken"],
   OrderItem: ["dedication"],
-  QuoteRequest: ["customerName", "customerEmail", "customerPhone", "notes"],
-  Customer: ["email", "name", "phone"],
+  QuoteRequest: ["customerName", "customerEmail", "customerPhone", "notes", "accessToken"],
+  Customer: ["email", "name", "phone", "unsubscribeToken"],
   CelebrationReminder: ["label"],
-  AbandonedCart: ["email", "name", "cart"],
+  AbandonedCart: ["email", "name", "cart", "token"],
   GiftCard: ["purchaserName", "purchaserEmail", "recipientName", "recipientEmail", "message"],
   DataRequest: ["email", "details"],
 };
 
-type BlindSpec = { hash: string; kind: "email" | "phone" };
+type BlindSpec = { hash: string; kind: "email" | "phone" | "token" };
 export const BLIND_INDEXES: Record<string, Record<string, BlindSpec>> = {
   Order: { customerEmail: { hash: "customerEmailHash", kind: "email" }, customerPhone: { hash: "customerPhoneHash", kind: "phone" } },
   QuoteRequest: { customerEmail: { hash: "customerEmailHash", kind: "email" } },
-  Customer: { email: { hash: "emailHash", kind: "email" } },
-  AbandonedCart: { email: { hash: "emailHash", kind: "email" } },
+  Customer: { email: { hash: "emailHash", kind: "email" }, unsubscribeToken: { hash: "unsubscribeTokenHash", kind: "token" } },
+  AbandonedCart: { email: { hash: "emailHash", kind: "email" }, token: { hash: "tokenHash", kind: "token" } },
   GiftCard: { purchaserEmail: { hash: "purchaserEmailHash", kind: "email" }, recipientEmail: { hash: "recipientEmailHash", kind: "email" } },
   DataRequest: { email: { hash: "emailHash", kind: "email" } },
 };

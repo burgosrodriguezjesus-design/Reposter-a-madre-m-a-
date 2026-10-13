@@ -32,6 +32,7 @@ export function checkEnvironment(): { errors: string[]; warnings: string[] } {
   need(!!env.TRUST_PROXY || !!env.VERCEL, "Define TRUST_PROXY (vercel | cloudflare | nginx | none) para obtener la IP real de forma segura", false);
   need(!!env.REDIS_URL, "Sin REDIS_URL los límites de peticiones no se comparten entre instancias", false);
   need(!!env.SMTP_HOST, "Sin SMTP_HOST no se envían emails a clientes", false);
+  need(!(production && env.SMTP_ALLOW_PLAINTEXT === "true"), "SMTP_ALLOW_PLAINTEXT=true en producción: los emails viajarían sin cifrar", true);
   need(!!env.ALERT_EMAIL || !!env.ALERT_WEBHOOK_URL, "Define ALERT_EMAIL o ALERT_WEBHOOK_URL para recibir alertas de seguridad", false);
   if (env.VERCEL) need(env.STORAGE_DRIVER === "supabase", "En Vercel el disco es efímero: usa STORAGE_DRIVER=supabase", true);
   if (production && env.ADMIN_PASSWORD) warnings.push("ADMIN_PASSWORD sigue definido en producción: bórralo tras crear el primer usuario");

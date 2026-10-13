@@ -11,7 +11,9 @@
  *  - al rotar DATA_HASH_KEY (recalcula todos los índices ciegos).
  */
 import { PrismaClient } from "@prisma/client";
-import { blindIndex, decrypt, encrypt, isEncrypted, needsReencryption } from "../src/lib/crypto";
+import { readdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { activeKeyId, blindIndex, decrypt, decryptBuffer, encrypt, encryptBuffer, isEncrypted, isEncryptedBuffer, needsReencryption } from "../src/lib/crypto";
 import { BLIND_INDEXES, ENCRYPTED_FIELDS } from "../src/lib/db";
 
 type Row = Record<string, unknown> & { id: string };
@@ -76,6 +78,44 @@ async function processModel(model: string, fields: readonly string[]) {
   return { pending, unreadable };
 }
 
+/** Fotos privadas en disco (STORAGE_DRIVER=local): cifra las antiguas y re-cifra al rotar la clave. */
+async function processPrivateFiles(): Promise<{ pending: number; unreadable: number }> {
+  if (process.env.STORAGE_DRIVER === "supabase") {
+    console.log("Fotos privadas         en Supabase Storage: las nuevas se suben cifradas; las anteriores a esta versión siguen en claro hasta que caduquen (90-150 días) o se vuelvan a subir.");
+    return { pending: 0, unreadable: 0 };
+  }
+  const root = path.resolve(process.env.UPLOAD_DIR || "./uploads", "private");
+  const files: string[] = [];
+  const walk = async (dir: string) => {
+    for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.name.endsWith(".webp")) files.push(full);
+    }
+  };
+  await walk(path.join(root, "references"));
+  let pending = 0;
+  let unreadable = 0;
+  const active = activeKeyId();
+  for (const file of files) {
+    const key = path.relative(root, file).split(path.sep).join("/");
+    const data = await readFile(file);
+    const kid = isEncryptedBuffer(data) ? data.subarray(9, 9 + data[8]).toString("utf8") : null;
+    if (kid === active) continue;
+    pending++;
+    if (checkOnly) continue;
+    try {
+      const sealed = encryptBuffer(decryptBuffer(data, `media:${key}`), `media:${key}`);
+      await writeFile(`${file}.tmp`, sealed, { mode: 0o600 });
+      await rename(`${file}.tmp`, file);
+    } catch {
+      unreadable++;
+    }
+  }
+  console.log(`${"Fotos privadas".padEnd(20)} ${String(files.length).padStart(6)} archivos · ${pending} ${checkOnly ? "pendientes" : "cifrados"}${unreadable ? ` · ${unreadable} ilegibles` : ""}`);
+  return { pending: checkOnly ? pending : 0, unreadable };
+}
+
 async function main() {
   console.log(checkOnly ? "Comprobando cifrado de datos personales…" : "Cifrando datos personales…");
   let pending = 0;
@@ -85,6 +125,9 @@ async function main() {
     pending += r.pending;
     unreadable += r.unreadable;
   }
+  const f = await processPrivateFiles();
+  pending += f.pending;
+  unreadable += f.unreadable;
   if (checkOnly && pending > 0) {
     console.error(`\n✗ Hay ${pending} registros sin cifrar con la clave activa o con índices desactualizados. Ejecuta npm run db:encrypt`);
     process.exitCode = 1;

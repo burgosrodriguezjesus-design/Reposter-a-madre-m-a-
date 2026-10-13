@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { auditAdmin, requirePermission } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { VerifyButton } from "./VerifyButton";
+import { retryFailedJob } from "./actions";
 
 export const metadata = { title: "Registro de actividad" };
 
@@ -30,6 +31,13 @@ export default async function AuditPage({ searchParams }: PageProps<"/admin/audi
     skip: page * 100,
     take: 100,
   });
+  // Trabajos fallidos definitivamente: el payload solo lleva ids y el error ya está enmascarado
+  const failedJobs = await db.job.findMany({
+    where: { status: "FAILED" },
+    orderBy: { updatedAt: "desc" },
+    take: 20,
+    select: { id: true, type: true, attempts: true, lastError: true, updatedAt: true },
+  });
   await auditAdmin(admin, { action: "audit.viewed", details: { filter, page } });
   const href = (q: Record<string, string>) => `/admin/auditoria?${new URLSearchParams({ ...(filter ? { tipo: filter } : {}), ...(severity ? { nivel: "alertas" } : {}), ...q })}`;
 
@@ -41,6 +49,26 @@ export default async function AuditPage({ searchParams }: PageProps<"/admin/audi
       />
       <Card title="Integridad">
         <VerifyButton />
+      </Card>
+      <Card title={`Trabajos fallidos (${failedJobs.length}${failedJobs.length === 20 ? "+" : ""})`}>
+        {failedJobs.length === 0 ? (
+          <p className="text-sm text-cocoa-600">Ningún email, aviso ni alerta pendiente de reintento manual.</p>
+        ) : (
+          <ul className="divide-y divide-sand-300/60 text-sm">
+            {failedJobs.map((j) => (
+              <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>
+                  <strong>{j.type}</strong> · {j.attempts} intentos · {formatDateTime(j.updatedAt)}
+                  {j.lastError && <span className="block text-xs text-cocoa-600">{j.lastError.slice(0, 160)}</span>}
+                </span>
+                <form action={retryFailedJob}>
+                  <input type="hidden" name="id" value={j.id} />
+                  <button className="btn-outline btn-sm">Reintentar</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
       <div className="my-4 flex flex-wrap gap-2">
         {FILTERS.map((f) => (

@@ -20,6 +20,7 @@ import { formatLocalDate, formatPrice } from "@/lib/format";
 import { awardLoyalty, handleOrderConfirmed } from "@/lib/order-events";
 import { processJobs, type JobHandler, type JobPayload } from "@/lib/jobs";
 import { securityAlert } from "@/lib/alerts";
+import { deletePrivate } from "@/lib/storage";
 import { log } from "@/lib/logger";
 import { siteUrl } from "@/lib/site-url";
 
@@ -88,6 +89,10 @@ const handlers: Record<string, JobHandler> = {
       text: `Nuevo acceso a tu cuenta del panel desde ${String(p.device)}. Si no has sido tú, cambia la contraseña en ${siteUrl("/admin/seguridad")}.`,
     });
   },
+  // Borrado de fotos privadas (supresión y plazos de conservación); deletePrivate lanza si falla
+  "storage.delete-private": async (p) => {
+    await deletePrivate(String(p.ref));
+  },
   "alert.send": async (p) => {
     // Sin datos personales: tipo, mensaje genérico e identificadores internos
     const settings = await getSettings();
@@ -120,7 +125,7 @@ export async function runJobs(opts: { limit?: number; timeBudgetMs?: number } = 
     ...opts,
     onPermanentFailure: async (job, error) => {
       if (job.type === "alert.send") return; // evita bucles de alertas
-      await securityAlert("jobs.failed", `Un trabajo en segundo plano ha fallado definitivamente (${job.type}). Reintenta desde el panel.`, { jobId: job.id, error: error.slice(0, 120) }, { dedupe: job.type });
+      await securityAlert("jobs.failed", `Un trabajo en segundo plano ha fallado definitivamente (${job.type}). Reintenta desde el panel (Registro de actividad → Trabajos fallidos).`, { jobId: job.id, error: error.slice(0, 120) }, { dedupe: job.type });
     },
   });
 }

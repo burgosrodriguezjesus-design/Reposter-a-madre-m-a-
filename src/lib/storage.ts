@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHmac } from "node:crypto";
 import sharp from "sharp";
 import { secureToken } from "@/lib/ids";
-import { keyedHash, safeEqual } from "@/lib/crypto";
+import { decryptBuffer, encryptBuffer, keyedHash, safeEqual } from "@/lib/crypto";
 import { log } from "@/lib/logger";
 
 /**
@@ -13,7 +13,9 @@ import { log } from "@/lib/logger";
  *  - STORAGE_DRIVER=supabase → Supabase Storage. Recomendado en Vercel.
  * Fotos públicas (productos, negocio) y PRIVADAS (fotos de referencia de los clientes):
  * las privadas nunca tienen URL pública; se guardan como `private:references/...` y solo se
- * sirven con una URL firmada que caduca (ver `signedMediaUrl` y /api/media).
+ * sirven con una URL firmada que caduca (ver `signedMediaUrl` y /api/media). Además se guardan
+ * CIFRADAS con AES-256-GCM (clave activa de DATA_ENCRYPTION_KEYS): ni el proveedor de
+ * almacenamiento ni una copia del volumen o del bucket permiten verlas sin la clave.
  * Todas las imágenes se re-codifican a WebP: se reduce su peso, se eliminan metadatos
  * (p. ej. la ubicación GPS de las fotos del móvil) y se descartan archivos que no sean imágenes.
  */
@@ -88,10 +90,12 @@ export async function deleteImage(url: string): Promise<void> {
       const { base, bucket, key } = supabaseConfig();
       const prefix = `${base}/storage/v1/object/public/${bucket}/`;
       if (!url.startsWith(prefix)) return;
-      await fetch(`${base}/storage/v1/object/${bucket}/${url.slice(prefix.length)}`, {
+      const res = await fetch(`${base}/storage/v1/object/${bucket}/${url.slice(prefix.length)}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${key}`, apikey: key },
+        signal: AbortSignal.timeout(10_000),
       });
+      if (!res.ok && res.status !== 404) log.warn("storage.delete_failed", { status: res.status });
     }
   } catch (error) {
     log.warn("storage.delete_failed", { error });
@@ -120,8 +124,9 @@ function privateKey(ref: string): string {
 export async function savePrivateImage(file: File): Promise<{ ref: string }> {
   const output = await processImage(file, 1600);
   const key = `references/${new Date().toISOString().slice(0, 7)}/${secureToken(12)}.webp`;
-  if (driver() === "supabase") await putSupabase(key, output.data, privateBucket());
-  else await putLocal(`private/${key}`, output.data);
+  const sealed = encryptBuffer(output.data, `media:${key}`);
+  if (driver() === "supabase") await putSupabase(key, sealed, privateBucket());
+  else await putLocal(`private/${key}`, sealed);
   return { ref: `private:${key}` };
 }
 
@@ -134,9 +139,19 @@ export async function readPrivate(ref: string): Promise<Buffer | null> {
       headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
       signal: AbortSignal.timeout(10_000),
     });
-    return res.ok ? Buffer.from(await res.arrayBuffer()) : null;
+    return res.ok ? openPrivate(Buffer.from(await res.arrayBuffer()), key) : null;
   }
-  return (await readLocal(ref.startsWith("private:") ? `private/${key}` : key)) ?? null;
+  const data = await readLocal(ref.startsWith("private:") ? `private/${key}` : key);
+  return data ? openPrivate(data, key) : null;
+}
+
+function openPrivate(data: Buffer, key: string): Buffer | null {
+  try {
+    return decryptBuffer(data, `media:${key}`);
+  } catch (error) {
+    log.error("storage.decrypt_failed", { error });
+    return null;
+  }
 }
 
 export async function deletePrivate(ref: string): Promise<void> {
@@ -145,13 +160,24 @@ export async function deletePrivate(ref: string): Promise<void> {
   try {
     if (driver() === "supabase" && ref.startsWith("private:")) {
       const { base, key: serviceKey } = supabaseConfig();
-      await fetch(`${base}/storage/v1/object/${privateBucket()}/${key}`, { method: "DELETE", headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } });
+      const res = await fetch(`${base}/storage/v1/object/${privateBucket()}/${key}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+        signal: AbortSignal.timeout(10_000),
+      });
+      // 404 = ya no existe; cualquier otro fallo debe verse (si no, quedaría una foto huérfana)
+      if (!res.ok && res.status !== 404) throw new Error(`Supabase respondió ${res.status} al borrar`);
     } else {
       const file = path.join(uploadDir(), ref.startsWith("private:") ? `private/${key}` : key);
-      if (file.startsWith(uploadDir())) await unlink(/*turbopackIgnore: true*/ file);
+      if (file.startsWith(uploadDir())) {
+        await unlink(/*turbopackIgnore: true*/ file).catch((e: NodeJS.ErrnoException) => {
+          if (e.code !== "ENOENT") throw e; // ya no existe: borrado completado
+        });
+      }
     }
   } catch (error) {
-    log.warn("storage.delete_private_failed", { error });
+    log.error("storage.delete_private_failed", { error });
+    throw error;
   }
 }
 

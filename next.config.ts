@@ -17,7 +17,9 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-site" },
   { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
   { key: "X-DNS-Prefetch-Control", value: "off" },
-  ...(isHttps ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }] : []),
+  // "preload" (listas de los navegadores) es casi irreversible: solo con HSTS_PRELOAD=true, cuando
+  // TODOS los subdominios sirvan HTTPS (igual que infra/cloudflare/zone-settings.json)
+  ...(isHttps ? [{ key: "Strict-Transport-Security", value: `max-age=63072000; includeSubDomains${process.env.HSTS_PRELOAD === "true" ? "; preload" : ""}` }] : []),
 ];
 
 const nextConfig: NextConfig = {

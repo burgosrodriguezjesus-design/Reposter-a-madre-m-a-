@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
+import { emailHash } from "@/lib/crypto";
 import { saveSettings, getSettings } from "@/lib/settings";
 import { CheckoutError, createOrder, IdempotencyConflictError } from "@/lib/checkout";
 import { changeOrderStatus, markOrderPaid, releaseOrderHolds } from "@/lib/order-events";
@@ -110,6 +111,27 @@ describe("integridad de pedidos", () => {
     expect(byEmail.map((o) => o.number)).toContain(number);
     // Los avisos quedan en la cola dentro de la misma transacción
     expect(await db.job.count({ where: { dedupeKey: `order.confirmed:${order.id}` } })).toBe(1);
+  });
+
+  it("los tokens de enlaces se guardan cifrados y se buscan por índice ciego", async () => {
+    const product = await makeProduct(null);
+    const slot = await openSlot(0, 4);
+    const { number, redirectUrl } = await createOrder(orderInput(product.id, slot, 501));
+    const [raw] = await owner.$queryRaw<{ accessToken: string }[]>`SELECT "accessToken" FROM "Order" WHERE number = ${number}`;
+    const token = new URL(redirectUrl, "http://x").searchParams.get("t")!;
+    expect(token.length).toBeGreaterThan(20);
+    expect(raw.accessToken.startsWith("enc:v1:")).toBe(true);
+    expect(raw.accessToken).not.toContain(token);
+    expect((await db.order.findUniqueOrThrow({ where: { number } })).accessToken).toBe(token);
+    // Enlace de baja: se busca por igualdad (índice ciego) y nunca se guarda en claro
+    const unsub = `tok-${Date.now()}-abcdefghijklmnopqrstuvwxyz`;
+    const email = `baja${Date.now()}@example.com`;
+    await db.customer.create({ data: { email, emailHash: emailHash(email), name: "Baja", unsubscribeToken: unsub } });
+    const [c] = await owner.$queryRaw<{ unsubscribeToken: string; unsubscribeTokenHash: string }[]>`SELECT "unsubscribeToken", "unsubscribeTokenHash" FROM "Customer" WHERE "unsubscribeTokenHash" IS NOT NULL ORDER BY "createdAt" DESC LIMIT 1`;
+    expect(c.unsubscribeToken.startsWith("enc:v1:")).toBe(true);
+    expect(c.unsubscribeTokenHash).not.toContain(unsub);
+    expect((await db.customer.findUnique({ where: { unsubscribeToken: unsub } }))?.name).toBe("Baja");
+    expect(await db.customer.findUnique({ where: { unsubscribeToken: `${unsub}x` } })).toBeNull();
   });
 });
 

@@ -32,6 +32,11 @@ export default async function SecurityPage() {
   return (
     <>
       <PageHeader title="Mi cuenta y seguridad" description={`${admin.email} · ${ROLE_LABEL[admin.role]}`} />
+      {admin.mustChangePassword && (
+        <p role="alert" className="mb-4 rounded-2xl bg-amber-100 p-4 text-sm text-amber-900">
+          Estás usando una contraseña provisional. Cámbiala para poder usar el panel.
+        </p>
+      )}
       <div className="grid gap-6 xl:grid-cols-2">
         <Card title="Contraseña">
           <ActionForm action={changePassword} className="space-y-3" resetOnSuccess>

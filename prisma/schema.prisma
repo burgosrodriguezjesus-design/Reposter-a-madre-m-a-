@@ -21,27 +21,29 @@ enum AdminRole {
 }
 
 model AdminUser {
-  id                String         @id @default(cuid())
-  email             String         @unique
-  name              String
+  id                 String         @id @default(cuid())
+  email              String         @unique
+  name               String
   /// Argon2id (los hashes bcrypt antiguos se migran al iniciar sesión)
-  passwordHash      String
-  role              AdminRole      @default(STAFF)
-  active            Boolean        @default(true)
+  passwordHash       String
+  role               AdminRole      @default(STAFF)
+  active             Boolean        @default(true)
   /// Secreto TOTP cifrado con AES-256-GCM
-  totpSecret        String?
-  totpEnabledAt     DateTime?
+  totpSecret         String?
+  totpEnabledAt      DateTime?
   /// Último intervalo TOTP aceptado (impide reutilizar un código)
-  totpLastStep      Int?
+  totpLastStep       Int?
   /// Códigos de recuperación (hash SHA-256), de un solo uso
-  recoveryCodes     String[]
-  failedLogins      Int            @default(0)
-  lockedUntil       DateTime?
-  passwordChangedAt DateTime       @default(now())
-  createdAt         DateTime       @default(now())
-  lastLoginAt       DateTime?
-  sessions          AdminSession[]
-  passkeys          AdminPasskey[]
+  recoveryCodes      String[]
+  failedLogins       Int            @default(0)
+  lockedUntil        DateTime?
+  passwordChangedAt  DateTime       @default(now())
+  /// Contraseña provisional (alta por otro administrador): debe cambiarla antes de usar el panel
+  mustChangePassword Boolean        @default(false)
+  createdAt          DateTime       @default(now())
+  lastLoginAt        DateTime?
+  sessions           AdminSession[]
+  passkeys           AdminPasskey[]
 }
 
 /// Sesiones del panel guardadas en servidor (revocables). El id es el SHA-256 del token de la cookie.
@@ -395,22 +397,24 @@ model QuoteRequest {
 // ─────────────────────────── Clientes y fidelización ───────────────────────────
 
 model Customer {
-  id                 String                @id @default(cuid())
+  id                   String                @id @default(cuid())
   /// Cifrado; la unicidad se garantiza con emailHash
-  email              String
-  emailHash          String                @unique
-  name               String
-  phone              String?
-  marketingConsent   Boolean               @default(false)
-  marketingConsentAt DateTime?
-  loyaltyStamps      Int                   @default(0)
-  ordersCount        Int                   @default(0)
-  totalSpentCents    Int                   @default(0)
-  unsubscribeToken   String                @unique
-  orders             Order[]
-  reminders          CelebrationReminder[]
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
+  email                String
+  emailHash            String                @unique
+  name                 String
+  phone                String?
+  marketingConsent     Boolean               @default(false)
+  marketingConsentAt   DateTime?
+  loyaltyStamps        Int                   @default(0)
+  ordersCount          Int                   @default(0)
+  totalSpentCents      Int                   @default(0)
+  /// Cifrado (AES-256-GCM); se busca por su índice ciego unsubscribeTokenHash
+  unsubscribeToken     String                @unique
+  unsubscribeTokenHash String?               @unique
+  orders               Order[]
+  reminders            CelebrationReminder[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 /// Recordatorio de celebración (solo con consentimiento expreso)
@@ -435,7 +439,9 @@ model AbandonedCart {
   email       String
   emailHash   String    @unique
   name        String?
+  /// Cifrado (AES-256-GCM); se busca por su índice ciego tokenHash
   token       String    @unique
+  tokenHash   String?   @unique
   /// Contenido del carrito (JSON cifrado)
   cart        String
   consentAt   DateTime

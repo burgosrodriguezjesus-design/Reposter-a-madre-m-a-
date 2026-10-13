@@ -6,8 +6,8 @@
 #    integration  postgres:16 + redis → migraciones (DIRECT_URL) → datos demo → mínimo
 #                 privilegio/RLS → tests de integración → db:check-security → build →
 #                 arranque (npm start) → /api/health → npm run test:security
-#    e2e          Playwright (Chromium) contra la app compilada; se puede desactivar con la
-#                 variable de repositorio E2E_ENABLED=false
+#    e2e          Playwright (Chromium) contra la app compilada (siempre: un check obligatorio
+#                 no debe poder quedar en verde sin ejecutarse)
 #
 #  deploy.yml solo despliega un commit de main si este workflow (y security.yml) terminó en
 #  "success" para ese mismo SHA. Configura también "CI / *" como checks obligatorios en la
@@ -160,7 +160,6 @@ jobs:
 
   e2e:
     name: E2E (Playwright, Chromium)
-    if: vars.E2E_ENABLED != 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:

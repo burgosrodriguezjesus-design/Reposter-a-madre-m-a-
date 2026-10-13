@@ -25,7 +25,9 @@ TMP="$OUT.partial"
 trap 'rm -f "$TMP"' EXIT
 
 # pg_dump -Fc ya comprime; se cifra en flujo (sin fichero intermedio en claro)
-# --enable-row-security: el rol de copias lee a través de su política RLS (sin BYPASSRLS)
+# --enable-row-security: pg_dump no se niega a volcar tablas con RLS. Autoalojado, el rol
+# reposteria_backup tiene BYPASSRLS (infra/postgres/initdb/10-roles.sh) y lee todas las filas;
+# con otro rol, sus políticas RLS deben dejarle leerlas todas o la copia saldría incompleta.
 pg_dump --format=custom --compress=6 --no-owner --no-privileges --enable-row-security --dbname="$DATABASE_URL" \
   | age --encrypt --recipient "$BACKUP_AGE_RECIPIENT" --output "$TMP"
 

@@ -31,12 +31,12 @@ export async function createUser(_prev: Result, formData: FormData): Promise<Res
   if (!parsed.success) return { ok: false, error: "Revisa el nombre, el email y el rol" };
   if (await db.adminUser.findUnique({ where: { email: parsed.data.email } })) return { ok: false, error: "Ya existe un usuario con ese email" };
   const password = `${secureToken(12)}-${secureToken(6)}`;
-  const user = await db.adminUser.create({ data: { ...parsed.data, passwordHash: await hashPassword(password) } });
+  const user = await db.adminUser.create({ data: { ...parsed.data, passwordHash: await hashPassword(password), mustChangePassword: true } });
   await changed(admin, "users.create", user.id, { role: parsed.data.role });
   revalidatePath("/admin/usuarios");
   return {
     ok: true,
-    message: `Usuario creado. Entrégale esta contraseña provisional en persona o por un canal seguro; en su primer acceso deberá activar la verificación en dos pasos y conviene que la cambie.`,
+    message: `Usuario creado. Entrégale esta contraseña provisional en persona o por un canal seguro; en su primer acceso deberá activar la verificación en dos pasos y cambiarla antes de usar el panel.`,
     password,
   };
 }

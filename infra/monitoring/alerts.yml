@@ -72,7 +72,7 @@ groups:
           severity: warning
         annotations:
           summary: "/api/health/ready falla en {{ $labels.instance }}"
-          description: "La réplica {{ $labels.instance }} no está lista (BD o Redis inaccesibles desde ella) desde hace 2 minutos."
+          description: "La réplica {{ $labels.instance }} no está lista (BD inaccesible desde ella) desde hace 2 minutos."
           runbook: "infra/monitoring/README.md#app-caida-o-sin-readiness"
 
       - alert: ReposteriaReadinessFailing
@@ -112,7 +112,7 @@ groups:
           severity: warning
         annotations:
           summary: "La réplica {{ $labels.instance }} no llega a Redis"
-          description: "redis_up=0 (visto desde la app) en {{ $labels.instance }}: rate limiting y cachés degradados."
+          description: "redis_up=0 (visto desde la app) en {{ $labels.instance }}: límites de peticiones solo por instancia (más permisivos con varias réplicas)."
           runbook: "infra/monitoring/README.md#redis"
 
       - alert: ReposteriaRedisUnreachable

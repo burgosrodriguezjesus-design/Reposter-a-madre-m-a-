@@ -18,7 +18,7 @@ Sustituye `https://reposteria.example.com` por `NEXT_PUBLIC_SITE_URL`.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Portada | `/` | HTTP 200 **y** la palabra clave del título de la tienda en el HTML (detecta páginas de error con 200) | 60 s | ≥ 3 (Europa, Norteamérica, Asia/Oceanía) | Tras 2 fallos seguidos confirmados desde ≥ 2 regiones |
 | 2 | Vida | `/api/health` | HTTP 200 y cuerpo con `"status":"ok"` | 60 s | ≥ 3 | Igual |
-| 3 | Readiness | `/api/health/ready` | HTTP 200 (503 = BD o Redis inaccesibles) | 60 s | ≥ 3 | Igual; severidad alta: sin BD no se toman pedidos |
+| 3 | Readiness | `/api/health/ready` | HTTP 200 (503 = BD inaccesible; Redis caído da 200 con "redis": false) | 60 s | ≥ 3 | Igual; severidad alta: sin BD no se toman pedidos |
 | 4 | Certificado TLS | dominio principal | Caducidad < 14 días | diario | — | Email |
 | 5 | Heartbeat del Watchdog | (URL de heartbeat del servicio) | Alertmanager envía la alerta `Watchdog` cada minuto | espera 1 min, gracia 5 min | — | Si deja de llegar, la pila de alertas está caída |
 | 6 | Heartbeat de copias (opcional) | (URL de heartbeat) | `backup-with-metrics.sh` / Job de backup hace `curl` al terminar bien | espera 1 h, gracia 1 h | — | Copia > 2 h |
@@ -40,9 +40,9 @@ Ajustes comunes:
 
 - `/` detecta fallos de renderizado, CDN, DNS y certificado.
 - `/api/health` dice si el proceso vive **sin** depender de la BD.
-- `/api/health/ready` dice si se pueden tomar pedidos (BD + Redis).
+- `/api/health/ready` dice si se pueden tomar pedidos (BD). El campo "redis" indica si los límites son compartidos.
 
-Combinación típica: `/api/health` OK y `/ready` KO → problema de BD/Redis;
+Combinación típica: `/api/health` OK y `/ready` KO → problema de BD;
 ambos KO → app/proxy/DNS; `/` KO y health OK → error de renderizado o del catálogo.
 
 ### Firewall y bots

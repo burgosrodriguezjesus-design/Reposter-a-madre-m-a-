@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { localNow } from "@/lib/availability";
 import { matchesText, parsePiiQuery, SCAN_LIMIT } from "@/lib/pii-search";
-import { requirePermission } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 
 export const metadata = { title: "Pedidos" };
 
@@ -15,12 +15,14 @@ const VIEWS = ["pendientes", "hoy", "proximos", "listos", "todos"] as const;
 type View = (typeof VIEWS)[number];
 
 export default async function OrdersPage({ searchParams }: PageProps<"/admin/pedidos">) {
-  await requirePermission("orders.view");
+  const admin = await requirePermission("orders.view");
   const params = await searchParams;
   const view: View = VIEWS.includes(params.vista as View) ? (params.vista as View) : "pendientes";
   const q = typeof params.q === "string" ? params.q.trim().slice(0, 80) : "";
   const day = typeof params.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.fecha) ? params.fecha : "";
   const search = parsePiiQuery(q);
+  // Las búsquedas por datos personales quedan registradas (el listado normal se refresca solo y no)
+  if (q) await auditAdmin(admin, { action: "orders.search", entity: "Order", details: { kind: search.kind } });
   const settings = await getSettings();
   const today = localNow(settings.business.timezone).date;
 

@@ -1,7 +1,7 @@
 import { Badge, Card, Empty, PageHeader } from "@/components/admin/ui";
 import { ActionForm } from "@/components/admin/forms";
 import { db } from "@/lib/db";
-import { requirePermission } from "@/lib/auth";
+import { auditAdmin, requirePermission } from "@/lib/auth";
 import { RETENTION } from "@/lib/privacy";
 import { formatDateTime } from "@/lib/format";
 import { resolveRequest } from "./actions";
@@ -18,7 +18,8 @@ const TYPE: Record<string, string> = {
 };
 
 export default async function PrivacyAdminPage() {
-  await requirePermission("privacy.manage");
+  const admin = await requirePermission("privacy.manage");
+  await auditAdmin(admin, { action: "privacy.requests_viewed", entity: "DataRequest" });
   const [pending, closed] = await Promise.all([
     db.dataRequest.findMany({ where: { status: "VERIFIED" }, orderBy: { dueAt: "asc" } }),
     db.dataRequest.findMany({ where: { status: { in: ["COMPLETED", "REJECTED"] } }, orderBy: { resolvedAt: "desc" }, take: 30 }),

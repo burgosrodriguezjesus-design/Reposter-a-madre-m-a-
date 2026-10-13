@@ -83,11 +83,11 @@ inhibit_rules:
     target_matchers:
       - alertname =~ "ReposteriaJobsDelayed|ReposteriaJobsBacklog"
 
-  # Si Redis está caído, la app lo ve caído y la readiness falla.
+  # Si Redis está caído, la app lo ve caído (la readiness NO falla por Redis: solo depende de la BD).
   - source_matchers:
       - alertname = "RedisDown"
     target_matchers:
-      - alertname =~ "ReposteriaRedisUnreachable|ReposteriaReadinessFailing|RedisMemoryHigh"
+      - alertname =~ "ReposteriaRedisUnreachable|RedisMemoryHigh"
 
 receivers:
   - name: equipo-email

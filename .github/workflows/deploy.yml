@@ -27,9 +27,10 @@
 #  VERCEL_TOKEN debe ser un token con alcance limitado al equipo/proyecto y caducidad.
 #
 #  ── Requisitos en Vercel ──
-#  Desactiva el despliegue automático de la integración Git para main (si no, Vercel
-#  desplegaría sin pasar por CI/Security): vercel.json → "git": {"deploymentEnabled": {"main": false}}
-#  o Project Settings → Git → Ignored Build Step. Los secretos de la app viven en Vercel
+#  vercel.json ya desactiva los despliegues de la integración Git ("git": {"deploymentEnabled":
+#  false}): si no, Vercel desplegaría main sin pasar por CI/Security, y las previews de cualquier
+#  rama ejecutarían "prisma migrate deploy" contra la BD de Preview. Todo despliegue pasa por
+#  este workflow (o por "vercel deploy" manual de alguien con acceso al proyecto). Los secretos de la app viven en Vercel
 #  (Environment Variables): el build se hace en Vercel y este workflow nunca los descarga.
 #  Nota: el script "vercel-build" del proyecto también ejecuta "prisma migrate deploy"; con las
 #  migraciones aplicadas aquí antes, allí no hay nada pendiente (no-op).

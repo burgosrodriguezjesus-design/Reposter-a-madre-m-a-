@@ -6,7 +6,7 @@
 #  - Sistema de ficheros raíz de solo lectura: solo /tmp y /app/.next/cache son
 #    escribibles (emptyDir con límite de tamaño).
 #  - Liveness en /api/health (no toca la BD: un fallo de la BD no debe reiniciar pods).
-#  - Readiness en /api/health/ready (BD + Redis): un pod sin dependencias sale del Service.
+#  - Readiness en /api/health/ready (BD; Redis caído no la hace fallar): un pod sin dependencias sale del Service.
 #  - Reparto entre zonas y nodos con topologySpreadConstraints.
 apiVersion: apps/v1
 kind: Deployment
@@ -47,9 +47,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         # UID/GID del usuario "nextjs" de la imagen (ajustar al Dockerfile real).
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       topologySpreadConstraints:

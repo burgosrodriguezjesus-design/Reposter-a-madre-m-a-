@@ -58,11 +58,11 @@ runs:
         b64() { openssl rand -base64 32; }
         hex() { openssl rand -hex 32; }
         K1="$(b64)"; K2="$(b64)"; HASH_KEY="$(b64)"; SA_KEY="$(b64)"
-        CRON="$(hex)"; METRICS="$(hex)"; AUTH="$(hex)"
+        CRON="$(hex)"; METRICS="$(hex)"
         OWNER_PW="$(openssl rand -hex 24)"; APP_PW="$(openssl rand -hex 24)"
         ADMIN_PW="Ci-$(openssl rand -hex 16)-Pw!"
         WEBHOOK="whsec_$(openssl rand -hex 24)"
-        for s in "$K1" "$K2" "$HASH_KEY" "$SA_KEY" "$CRON" "$METRICS" "$AUTH" "$OWNER_PW" "$APP_PW" "$ADMIN_PW" "$WEBHOOK"; do
+        for s in "$K1" "$K2" "$HASH_KEY" "$SA_KEY" "$CRON" "$METRICS" "$OWNER_PW" "$APP_PW" "$ADMIN_PW" "$WEBHOOK"; do
           echo "::add-mask::$s"
         done
         {
@@ -71,7 +71,6 @@ runs:
           echo "DATA_ENCRYPTION_KEYS=kci1:${K1},kci2:${K2}"
           echo "DATA_ENCRYPTION_ACTIVE_KEY=kci2"
           echo "DATA_HASH_KEY=${HASH_KEY}"
-          echo "AUTH_SECRET=${AUTH}"
           echo "CRON_SECRET=${CRON}"
           echo "METRICS_TOKEN=${METRICS}"
           echo "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${SA_KEY}"

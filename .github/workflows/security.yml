@@ -6,8 +6,8 @@
 #  para el mismo SHA antes de desplegar.
 #
 #  Política de fallo:
-#    - CodeQL (security-extended) ......... informa en Code scanning; las alertas se gestionan
-#                                           con la protección de rama "Code scanning results".
+#    - CodeQL (security-extended) ......... falla con hallazgos de severidad de seguridad ≥ 7,0
+#                                           (HIGH/CRITICAL); el resto queda en Code scanning.
 #    - Semgrep ............................ falla con hallazgos de severidad ERROR.
 #    - npm audit --omit=dev ............... falla con vulnerabilidades HIGH/CRITICAL en producción.
 #    - OSV-Scanner (package-lock.json) .... falla con vulnerabilidades conocidas (osv-scanner.toml
@@ -87,6 +87,31 @@ jobs:
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: /language:javascript-typescript
+          output: codeql-results
+
+      - name: Bloquear con hallazgos HIGH/CRITICAL
+        run: |
+          python3 - <<'PY'
+          import glob, json, sys
+          blocking = []
+          for path in glob.glob("codeql-results/*.sarif"):
+              for run in json.load(open(path)).get("runs", []):
+                  rules = {}
+                  for comp in [run["tool"]["driver"], *run["tool"].get("extensions", [])]:
+                      for r in comp.get("rules", []):
+                          rules[r["id"]] = float(r.get("properties", {}).get("security-severity", 0) or 0)
+                  for res in run.get("results", []):
+                      if res.get("suppressions"):
+                          continue
+                      sev = rules.get(res.get("ruleId"), 0)
+                      if sev >= 7.0:
+                          loc = res["locations"][0]["physicalLocation"]
+                          blocking.append((res["ruleId"], sev, loc["artifactLocation"]["uri"], loc.get("region", {}).get("startLine", 0)))
+          for rule, sev, uri, line in blocking:
+              print(f"::error file={uri},line={line}::CodeQL {rule} (severidad {sev})")
+          print(f"CodeQL: {len(blocking)} hallazgos bloqueantes (≥ 7,0)")
+          sys.exit(1 if blocking else 0)
+          PY
 
   semgrep:
     name: Semgrep (registro + reglas propias)

@@ -1,6 +1,8 @@
 import "server-only";
+import { Prisma } from "@prisma/client";
 import { db, type Tx } from "@/lib/db";
-import { deletePrivate, isPrivateRef } from "@/lib/storage";
+import { enqueue } from "@/lib/jobs";
+import { isPrivateRef } from "@/lib/storage";
 
 /**
  * Derechos de las personas (RGPD art. 15-22) y conservación limitada.
@@ -18,11 +20,22 @@ export const RETENTION = {
   inactiveCustomersMonths: 24,
   dataRequestsYears: 3,
   jobsDoneDays: 30,
+  jobsFailedDays: 90,
+  unpublishedReviewsMonths: 12,
   stripeEventsDays: 90,
   auditYears: 2,
 } as const;
 
 const ERASED = "Datos eliminados";
+
+/**
+ * Borrado de fotos privadas a través de la cola (reintentos y alerta si falla definitivamente):
+ * se encola en la MISMA transacción que quita la referencia, así nunca queda una foto huérfana
+ * en silencio. El payload solo lleva la referencia aleatoria del archivo (sin datos personales).
+ */
+async function scheduleDeletion(client: Tx | typeof db, refs: string[]) {
+  for (const ref of refs) await enqueue("storage.delete-private", { ref }, { dedupeKey: `delete:${ref}`, tx: client as Tx });
+}
 
 /** Anonimiza un pedido: conserva importes, fechas y productos; borra a la persona. */
 export async function anonymizeOrder(tx: Tx, orderId: string) {
@@ -37,15 +50,22 @@ export async function anonymizeOrder(tx: Tx, orderId: string) {
       customerPhone: "",
       customerPhoneHash: null,
       address: null,
+      postalCode: null,
+      city: null,
       notes: null,
       adminNotes: null,
+      rejectionReason: null,
       customerId: null,
       marketingConsent: false,
       anonymizedAt: new Date(),
     },
   });
-  await tx.orderItem.updateMany({ where: { orderId }, data: { dedication: null, referencePhotoUrl: null } });
-  return order.items.map((i) => i.referencePhotoUrl).filter(isPrivateRef);
+  // customSpec puede llevar textos de la persona (inscripción de la tarta): se elimina entero
+  await tx.orderItem.updateMany({ where: { orderId }, data: { dedication: null, referencePhotoUrl: null, customSpec: Prisma.DbNull } });
+  await tx.orderStatusEvent.updateMany({ where: { orderId }, data: { note: null } });
+  const photos = order.items.map((i) => i.referencePhotoUrl).filter(isPrivateRef);
+  await scheduleDeletion(tx, photos);
+  return photos;
 }
 
 export async function exportSubjectData(emailHash: string) {
@@ -88,12 +108,14 @@ export async function eraseSubjectData(emailHash: string): Promise<{ anonymizedO
       });
       for (const o of orders) photos.push(...(await anonymizeOrder(tx, o.id)));
       const quotes = await tx.quoteRequest.findMany({ where: { customerEmailHash: emailHash }, select: { id: true, referencePhotoUrl: true, order: { select: { id: true } } } });
-      for (const q of quotes) if (isPrivateRef(q.referencePhotoUrl)) photos.push(q.referencePhotoUrl);
+      const quotePhotos = quotes.map((q) => q.referencePhotoUrl).filter(isPrivateRef);
+      photos.push(...quotePhotos);
+      await scheduleDeletion(tx, quotePhotos);
       const unlinked = quotes.filter((q) => !q.order).map((q) => q.id);
       const deletedQuotes = await tx.quoteRequest.deleteMany({ where: { id: { in: unlinked } } });
       await tx.quoteRequest.updateMany({
         where: { customerEmailHash: emailHash },
-        data: { customerName: ERASED, customerEmail: "", customerEmailHash: `erased:${Date.now()}`, customerPhone: "", notes: null, referencePhotoUrl: null },
+        data: { customerName: ERASED, customerEmail: "", customerEmailHash: `erased:${Date.now()}`, customerPhone: "", notes: null, referencePhotoUrl: null, spec: { anonimizado: true } },
       });
       await tx.giftCard.updateMany({ where: { purchaserEmailHash: emailHash }, data: { purchaserName: ERASED, purchaserEmail: "", purchaserEmailHash: "erased", message: null } });
       await tx.giftCard.updateMany({ where: { recipientEmailHash: emailHash }, data: { recipientName: null, recipientEmail: null, recipientEmailHash: null, message: null } });
@@ -103,7 +125,6 @@ export async function eraseSubjectData(emailHash: string): Promise<{ anonymizedO
     },
     { timeout: 30_000 },
   );
-  for (const ref of photos) await deletePrivate(ref);
   return { ...result, activeOrders: active };
 }
 
@@ -127,16 +148,30 @@ export async function applyRetention() {
     take: 1000,
   });
   for (const item of withPhotos) {
-    if (isPrivateRef(item.referencePhotoUrl)) photos.push(item.referencePhotoUrl);
-    await db.orderItem.update({ where: { id: item.id }, data: { referencePhotoUrl: null } });
+    const refs = isPrivateRef(item.referencePhotoUrl) ? [item.referencePhotoUrl] : [];
+    photos.push(...refs);
+    await db.$transaction(async (tx) => {
+      await tx.orderItem.update({ where: { id: item.id }, data: { referencePhotoUrl: null } });
+      await scheduleDeletion(tx, refs);
+    });
   }
   const oldQuotePhotos = await db.quoteRequest.findMany({ where: { referencePhotoUrl: { not: null }, createdAt: { lt: days(RETENTION.referencePhotosDays + 60) } }, select: { id: true, referencePhotoUrl: true }, take: 1000 });
   for (const q of oldQuotePhotos) {
-    if (isPrivateRef(q.referencePhotoUrl)) photos.push(q.referencePhotoUrl);
-    await db.quoteRequest.update({ where: { id: q.id }, data: { referencePhotoUrl: null } });
+    const refs = isPrivateRef(q.referencePhotoUrl) ? [q.referencePhotoUrl] : [];
+    photos.push(...refs);
+    await db.$transaction(async (tx) => {
+      await tx.quoteRequest.update({ where: { id: q.id }, data: { referencePhotoUrl: null } });
+      await scheduleDeletion(tx, refs);
+    });
   }
-  for (const ref of photos) await deletePrivate(ref);
-  report.photosDeleted = photos.length;
+  report.photosScheduledForDeletion = photos.length;
+
+  // Tarjetas regalo de hace más de 6 años: se conservan importes y estado, no las personas
+  const oldCards = await db.giftCard.updateMany({
+    where: { createdAt: { lt: days(RETENTION.ordersYears * 366) }, NOT: { purchaserEmailHash: "erased" } },
+    data: { purchaserName: ERASED, purchaserEmail: "", purchaserEmailHash: "erased", recipientName: null, recipientEmail: null, recipientEmailHash: null, message: null },
+  });
+  report.giftCardsAnonymized = oldCards.count;
 
   const r = await Promise.all([
     db.quoteRequest.deleteMany({ where: { status: { in: ["NEW", "QUOTED", "REJECTED", "EXPIRED"] }, order: null, createdAt: { lt: days(RETENTION.quotesNotAcceptedMonths * 31) } } }),
@@ -147,10 +182,12 @@ export async function applyRetention() {
     db.dataRequest.deleteMany({ where: { createdAt: { lt: days(RETENTION.dataRequestsYears * 366) } } }),
     db.dataRequest.deleteMany({ where: { status: "UNVERIFIED", createdAt: { lt: days(7) } } }),
     db.job.deleteMany({ where: { status: "DONE", updatedAt: { lt: days(RETENTION.jobsDoneDays) } } }),
+    db.job.deleteMany({ where: { status: "FAILED", updatedAt: { lt: days(RETENTION.jobsFailedDays) } } }),
+    db.review.deleteMany({ where: { status: { not: "APPROVED" }, isDemo: false, createdAt: { lt: days(RETENTION.unpublishedReviewsMonths * 31) } } }),
     db.stripeEvent.deleteMany({ where: { processedAt: { lt: days(RETENTION.stripeEventsDays) } } }),
     // El trigger de la BD solo permite borrar auditoría de más de 2 años
     db.auditLog.deleteMany({ where: { createdAt: { lt: days(RETENTION.auditYears * 366) } } }),
   ]);
-  ["quotes", "carts", "loginAttempts", "sessions", "inactiveCustomers", "dataRequests", "unverifiedRequests", "jobs", "stripeEvents", "auditLog"].forEach((k, i) => (report[k] = r[i].count));
+  ["quotes", "carts", "loginAttempts", "sessions", "inactiveCustomers", "dataRequests", "unverifiedRequests", "jobs", "failedJobs", "unpublishedReviews", "stripeEvents", "auditLog"].forEach((k, i) => (report[k] = r[i].count));
   return report;
 }

@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { db } from "@/lib/db";
 import { safeEqual } from "@/lib/crypto";
 import { accessTokenFor } from "@/lib/access-token";
+import { log } from "@/lib/logger";
 import { getSettings } from "@/lib/settings";
 import { getStripe, paymentFromSession } from "@/lib/stripe";
 import { markOrderPaid } from "@/lib/order-events";
@@ -51,7 +52,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/pe
           }))!;
         }
       } catch (error) {
-        console.error("[pedido] No se pudo comprobar el pago", error);
+        log.warn("order.payment_check_failed", { error });
       }
     }
   }

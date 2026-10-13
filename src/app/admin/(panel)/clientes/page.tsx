@@ -74,7 +74,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/admin/
               <form action={deleteCustomerData}>
                 <input type="hidden" name="id" value={c.id} />
                 <ConfirmButton
-                  message={`¿Eliminar los datos de ${c.email}? Se borran su ficha, recordatorios y carritos; los pedidos se conservan por obligación legal.`}
+                  message={`¿Eliminar los datos de ${c.email}? Se borran su ficha, recordatorios, carritos y fotos, y se anonimizan sus pedidos cerrados (los importes se conservan por obligación legal). Los pedidos en curso no se tocan.`}
                   className="btn-ghost size-9 p-0 text-cocoa-400 hover:text-red-700"
                 >
                   <Trash2 className="size-4" />

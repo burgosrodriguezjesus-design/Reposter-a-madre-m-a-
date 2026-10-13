@@ -80,7 +80,7 @@ Después actualiza el secreto (`postgres_app_password`) y `.env.production`, y r
 ### Restaurar una copia lógica
 
 ```bash
-BACKUP_AGE_IDENTITY=/ruta/clave.txt TARGET_DATABASE_URL=postgresql://... scripts/restore.sh reposteria-<UTC>.sql.gz.age
+BACKUP_AGE_IDENTITY=/ruta/clave.txt TARGET_DATABASE_URL=postgresql://... scripts/restore.sh reposteria-<UTC>.dump.age   # con su .sha256 al lado
 ```
 
 ### Recuperación a un punto en el tiempo (PITR)

@@ -69,7 +69,10 @@ describe("RGPD", () => {
     const product = await makeProduct(null);
     const slot = await openSlot(0, 8);
     const { number } = await createOrder({ ...orderInput(product.id, slot, 800), customer: { name: "Lucía Borrable", email: "borrar@example.com", phone: "611223344" } } as never);
-    await db.order.update({ where: { number }, data: { status: "DELIVERED" } });
+    const ref = "private:references/2026-10/AbCdEfGhIjKlMnOp.webp";
+    const created = await db.order.update({ where: { number }, data: { status: "DELIVERED", postalCode: "28001", city: "Madrid", rejectionReason: "nota" }, include: { items: true } });
+    await db.orderItem.update({ where: { id: created.items[0].id }, data: { referencePhotoUrl: ref, customSpec: { inscripcion: "Feliz cumple Lucía" } } });
+    await db.orderStatusEvent.create({ data: { orderId: created.id, status: "DELIVERED", note: "Entregado a Lucía en mano" } });
     const exported = await exportSubjectData(emailHash("borrar@example.com"));
     expect(exported.orders).toHaveLength(1);
     expect(JSON.stringify(exported)).toContain("Lucía Borrable");
@@ -79,6 +82,13 @@ describe("RGPD", () => {
     const order = await db.order.findUniqueOrThrow({ where: { number } });
     expect(order.customerName).toBe("Datos eliminados");
     expect(order.totalCents).toBeGreaterThan(0);
+    expect([order.postalCode, order.city, order.rejectionReason]).toEqual([null, null, null]);
+    const items = await db.orderItem.findMany({ where: { orderId: order.id } });
+    expect(items.every((i) => i.customSpec === null && i.referencePhotoUrl === null)).toBe(true);
+    const events = await db.orderStatusEvent.findMany({ where: { orderId: order.id } });
+    expect(events.every((e) => e.note === null)).toBe(true);
+    // La foto se borra a través de la cola (reintentos + alerta), encolada en la misma transacción
+    expect(await db.job.count({ where: { type: "storage.delete-private", dedupeKey: `delete:${ref}` } })).toBe(1);
     const after = await exportSubjectData(emailHash("borrar@example.com"));
     expect(after.orders).toHaveLength(0);
     expect(JSON.stringify(after)).not.toContain("Lucía");

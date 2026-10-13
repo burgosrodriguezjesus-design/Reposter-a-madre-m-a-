@@ -112,7 +112,7 @@ IP. Las NetworkPolicy garantizan que a la app solo se llega a través del ingres
   el selector de pods de `app-ingress` no lo reconoce; usa un `ipBlock` con el rango de
   los nodos en su lugar.
 
-- **Readiness con BD y Redis**: si la BD cae, todos los pods salen del Service y el
+- **Readiness con BD** (Redis solo se informa: sin él la app sigue con límites por instancia): si la BD cae, todos los pods salen del Service y el
   ingress devuelve 503 en todo el sitio (también en páginas de catálogo que podrían
   servirse desde caché). Es intencionado para no aceptar pedidos que no se pueden
   guardar; la liveness (`/api/health`) no depende de la BD, así que no hay reinicios
