@@ -23,3 +23,6 @@ next-env.d.ts
 coverage
 loadtest/k6/catalog.json
 k6-*.json
+
+# Copia en disco de Redis local
+dump.rdb
