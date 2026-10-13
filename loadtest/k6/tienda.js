@@ -10,7 +10,8 @@
  *   DATABASE_URL=<bd de staging> node loadtest/k6/export-catalog.mjs > loadtest/k6/catalog.json
  *   k6 run -e BASE_URL=https://staging.example.es -e PERFIL=500 -e AUTORIZADO=si loadtest/k6/tienda.js
  *
- * PERFIL: humo (5 VU) · 100 · 500 · 1000 · 5000 · 10000 (rampa, meseta y bajada).
+ * PERFIL: humo (5 VU) · 100 · 500 · 1000 · 5000 · 10000 (rampa, meseta y bajada) · escalera
+ * (100 → 300 → 600 → 1000 VU, un minuto por nivel, para encontrar el límite).
  * Para 5000+ VU usa varios generadores (k6 distribuido / k6 Cloud): un solo equipo se
  * convierte en el cuello de botella y falsea el resultado.
  * Con LOADTEST_IP=1 envía X-Loadtest-IP (solo lo respeta el balanceador de pruebas de
@@ -44,6 +45,17 @@ const PERFILES = {
   1000: { vus: 1000, rampa: "2m", meseta: "5m" },
   5000: { vus: 5000, rampa: "5m", meseta: "5m" },
   10000: { vus: 10000, rampa: "8m", meseta: "5m" },
+  // Escalera para encontrar el límite: sube por tramos y mantiene cada nivel 1 minuto
+  escalera: {
+    vus: 1000,
+    stages: [
+      { duration: "45s", target: 100 }, { duration: "1m", target: 100 },
+      { duration: "45s", target: 300 }, { duration: "1m", target: 300 },
+      { duration: "45s", target: 600 }, { duration: "1m", target: 600 },
+      { duration: "45s", target: 1000 }, { duration: "1m", target: 1000 },
+      { duration: "30s", target: 0 },
+    ],
+  },
 };
 const perfil = PERFILES[__ENV.PERFIL || "humo"];
 if (!perfil) fail(`PERFIL desconocido: ${__ENV.PERFIL}`);
@@ -53,7 +65,7 @@ export const options = {
     tienda: {
       executor: "ramping-vus",
       startVUs: 0,
-      stages: [
+      stages: perfil.stages ?? [
         { duration: perfil.rampa, target: perfil.vus },
         { duration: perfil.meseta, target: perfil.vus },
         { duration: "30s", target: 0 },
