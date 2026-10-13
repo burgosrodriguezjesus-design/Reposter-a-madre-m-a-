@@ -39,7 +39,10 @@ async function scheduleDeletion(client: Tx | typeof db, refs: string[]) {
 
 /** Anonimiza un pedido: conserva importes, fechas y productos; borra a la persona. */
 export async function anonymizeOrder(tx: Tx, orderId: string) {
-  const order = await tx.order.findUnique({ where: { id: orderId }, select: { id: true, anonymizedAt: true, items: { select: { referencePhotoUrl: true } } } });
+  const order = await tx.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, anonymizedAt: true, items: { select: { referencePhotoUrl: true } }, quoteRequest: { select: { id: true, referencePhotoUrl: true } } },
+  });
   if (!order || order.anonymizedAt) return [];
   await tx.order.update({
     where: { id: orderId },
@@ -63,7 +66,14 @@ export async function anonymizeOrder(tx: Tx, orderId: string) {
   // customSpec puede llevar textos de la persona (inscripción de la tarta): se elimina entero
   await tx.orderItem.updateMany({ where: { orderId }, data: { dedication: null, referencePhotoUrl: null, customSpec: Prisma.DbNull } });
   await tx.orderStatusEvent.updateMany({ where: { orderId }, data: { note: null } });
-  const photos = order.items.map((i) => i.referencePhotoUrl).filter(isPrivateRef);
+  // El presupuesto aceptado que originó el pedido lleva los mismos datos: se anonimiza con él
+  if (order.quoteRequest) {
+    await tx.quoteRequest.update({
+      where: { id: order.quoteRequest.id },
+      data: { customerName: ERASED, customerEmail: "", customerEmailHash: `erased:q:${order.quoteRequest.id}`, customerPhone: "", notes: null, referencePhotoUrl: null, spec: { anonimizado: true } },
+    });
+  }
+  const photos = [...order.items.map((i) => i.referencePhotoUrl), order.quoteRequest?.referencePhotoUrl].filter(isPrivateRef);
   await scheduleDeletion(tx, photos);
   return photos;
 }

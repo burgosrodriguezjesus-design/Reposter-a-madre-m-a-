@@ -140,7 +140,9 @@ Sube este repositorio a tu cuenta de GitHub (si no lo está ya).
 3. En **Environment Variables** añade las de la [tabla](#variables-de-entorno), como mínimo:
    `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL`, `DIRECT_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STORAGE_DRIVER=supabase`,
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET=uploads`, `CRON_SECRET`.
-4. **Deploy**.
+4. **Deploy** (solo el primero). `vercel.json` desactiva los despliegues automáticos al hacer push: a partir de ahí se
+   despliega con `.github/workflows/deploy.yml` (solo si CI y Security están en verde, con aprobación manual), o a mano con
+   `vercel deploy --prod`. Configuración en [docs/operaciones/despliegue-seguro.md](docs/operaciones/despliegue-seguro.md).
 5. Carga los datos iniciales **una vez** desde tu ordenador, apuntando a la base de datos de producción:
    ```bash
    DATABASE_URL="(cadena directa 5432)" DIRECT_URL="(cadena directa 5432)" ADMIN_EMAIL="tu@email.es" ADMIN_PASSWORD="una-contraseña-larga" npm run db:seed
@@ -149,7 +151,8 @@ Sube este repositorio a tu cuenta de GitHub (si no lo está ya).
 6. **Dominio propio**: Vercel → *Settings → Domains* → añade `www.tudominio.es` y sigue las instrucciones DNS.
    Después actualiza `NEXT_PUBLIC_SITE_URL=https://www.tudominio.es` y vuelve a desplegar. HTTPS se activa solo.
 7. **Tareas programadas**: `vercel.json` ya programa `/api/cron` cada día a las 07:00 UTC (recordatorios de celebraciones,
-   carritos y limpieza). En el plan Pro puedes pasarlo a cada hora (`"0 * * * *"`).
+   carritos y limpieza). La cola de emails y avisos (`/api/cron/jobs`) la llama cada 5 minutos
+   `.github/workflows/cron-jobs.yml` (entorno `cron` de GitHub); en el plan Pro, ponla cada minuto en `vercel.json`.
 
 ### Alternativa: servidor propio (VPS)
 ```bash
@@ -276,24 +279,30 @@ src/
 
 ## Seguridad y RGPD
 
-- HTTPS obligatorio (HSTS y `upgrade-insecure-requests` cuando la URL pública es https) y cabeceras de seguridad (CSP, anti-clickjacking, nosniff…).
-- Panel con contraseña cifrada (bcrypt), sesión firmada en cookie `httpOnly` + `SameSite`, bloqueo tras intentos fallidos y comprobación de sesión en cada acción.
-- Protección CSRF (comprobación de origen) y validación estricta de todos los formularios en el servidor (zod).
-- **Los precios siempre se recalculan en el servidor**; el navegador nunca decide cuánto se cobra.
-- Límite de peticiones en formularios públicos y campo trampa anti-spam.
-- No se guardan datos de tarjetas (Stripe Checkout). Las fotos subidas se validan, se recodifican y pierden sus metadatos.
-- Consentimiento separado y no premarcado para comunicaciones comerciales, recordatorios y aviso de carrito; enlace de baja en cada email.
-- Exportación solo de clientes con consentimiento, borrado de datos de un cliente y limpieza automática de datos antiguos.
-- Analítica y mapa de Google solo tras consentimiento / acción del usuario.
+Resumen (detalle, pruebas reales y riesgos pendientes en **[docs/INFORME-SEGURIDAD.md](docs/INFORME-SEGURIDAD.md)**):
 
-> Las dependencias de desarrollo `prisma` y `eslint-config-next` arrastran avisos de `npm audit` en paquetes que solo se usan
-> al compilar/analizar código, no en la web publicada.
+- Datos personales, fotos de clientes y enlaces de acceso a pedidos **cifrados con AES-256-GCM**; búsquedas por índices ciegos.
+- Panel con **Argon2id + verificación en dos pasos obligatoria** (app TOTP o llave de acceso), roles, sesiones revocables ligadas al
+  dispositivo, bloqueo por fuerza bruta, alertas y registro de actividad encadenado que no se puede modificar.
+- CSP con nonce, protección CSRF, límites de peticiones adaptativos, WAF, validación en servidor; **los precios siempre se calculan en el servidor**.
+- Pedidos sin pérdidas ni duplicados (transacciones, bloqueos, `Idempotency-Key`, cola con reintentos); pagos confirmados solo por el webhook firmado de Stripe.
+- Copias cifradas, plazos de conservación automáticos, exportación y supresión de datos, analítica solo con consentimiento.
+- CI con análisis de seguridad que **bloquea el despliegue** ante vulnerabilidades graves.
+
+Documentación: [arquitectura y amenazas](docs/seguridad/arquitectura-y-amenazas.md) ·
+[alta disponibilidad](docs/operaciones/alta-disponibilidad.md) · [recuperación ante desastres](docs/operaciones/recuperacion-desastres.md) ·
+[monitorización](docs/operaciones/monitorizacion-y-alertas.md) · [secretos](docs/operaciones/gestion-de-secretos.md) ·
+[despliegue seguro](docs/operaciones/despliegue-seguro.md) · RGPD: [registro de actividades](docs/rgpd/registro-actividades-tratamiento.md),
+[encargados](docs/rgpd/encargados-y-transferencias.md), [brechas](docs/rgpd/procedimiento-brechas.md),
+[conservación](docs/rgpd/conservacion-y-supresion.md), [derechos](docs/rgpd/derechos-interesados.md) · [SECURITY.md](SECURITY.md).
 
 ---
 
 ## Mantenimiento
 
 - **Cambiar el modelo de datos**: edita `prisma/schema.prisma` → `npm run db:migrate` → sube los cambios (Vercel aplica la migración al desplegar).
-- **Copias de seguridad**: Supabase hace copias diarias; también puedes usar `pg_dump`.
+- **Copias de seguridad**: además de las del proveedor, `scripts/backup.sh` (cifradas con age) y simulacro de restauración
+  trimestral con `scripts/restore.sh` ([recuperación ante desastres](docs/operaciones/recuperacion-desastres.md)).
+- **Tras desplegar una versión con cambios de cifrado**: `npm run db:encrypt`.
 - **Actualizar dependencias**: `npm outdated` y `npm update`, comprobando después `npm run build`.
 - **Regenerar ilustraciones demo**: `npx tsx scripts/generate-demo-images.ts`.
