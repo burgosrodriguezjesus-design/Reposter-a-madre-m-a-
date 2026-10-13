@@ -159,6 +159,15 @@ export const config = {
   matcher: [
     {
       source: "/((?!_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|demo/|brand/|decor/|uploads/|robots.txt|sitemap.xml|manifest.webmanifest).*)",
+      // Las precargas de enlaces que hace Next.js en segundo plano (~25 por página vista) no pasan
+      // por aquí (patrón recomendado en la guía de CSP de Next.js): no son documentos HTML (la CSP no
+      // aplica), solo leen datos y contaban contra el límite por IP, bloqueando a visitantes reales
+      // que comparten IP (operadoras móviles, wifi del mercado). Las páginas del panel y las API
+      // repiten sus comprobaciones en el servidor y los envíos (POST) nunca son precargas.
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
     },
   ],
 };

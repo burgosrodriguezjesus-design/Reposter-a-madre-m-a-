@@ -9,6 +9,8 @@ import { getOpeningSchedule } from "@/lib/schedule";
 import { telLink, whatsappLink } from "@/lib/format";
 import { getLandings } from "@/content/landings";
 
+/** Los enlaces del pie no se precargan (prefetch={false}): son muchos, se usan poco y cada precarga
+ *  es una petición más al servidor; al pulsarlos la página carga igual de rápido desde la CDN. */
 export async function Footer() {
   const [settings, categories, schedule] = await Promise.all([getSettings(), getCategories(), getOpeningSchedule()]);
   const b = settings.business;
@@ -81,18 +83,18 @@ export async function Footer() {
           <ul className="space-y-2 text-sm text-cocoa-700">
             {categories.map((c) => (
               <li key={c.id}>
-                <Link href={`/categoria/${c.slug}`} className="hover:text-blush-700">
+                <Link prefetch={false} href={`/categoria/${c.slug}`} className="hover:text-blush-700">
                   {c.name}
                 </Link>
               </li>
             ))}
             <li>
-              <Link href="/personalizar-tarta" className="hover:text-blush-700">
+              <Link prefetch={false} href="/personalizar-tarta" className="hover:text-blush-700">
                 Diseña tu tarta
               </Link>
             </li>
             <li>
-              <Link href="/tarjetas-regalo" className="hover:text-blush-700">
+              <Link prefetch={false} href="/tarjetas-regalo" className="hover:text-blush-700">
                 Tarjetas regalo
               </Link>
             </li>
@@ -104,19 +106,19 @@ export async function Footer() {
           <ul className="space-y-2 text-sm text-cocoa-700">
             {landings.map((l) => (
               <li key={l.slug}>
-                <Link href={`/${l.slug}`} className="hover:text-blush-700">
+                <Link prefetch={false} href={`/${l.slug}`} className="hover:text-blush-700">
                   {l.label}
                 </Link>
               </li>
             ))}
             <li>
-              <Link href="/seguimiento" className="hover:text-blush-700">
+              <Link prefetch={false} href="/seguimiento" className="hover:text-blush-700">
                 Seguir mi pedido
               </Link>
             </li>
             {settings.marketing.remindersEnabled && (
               <li>
-                <Link href="/recordatorios" className="hover:text-blush-700">
+                <Link prefetch={false} href="/recordatorios" className="hover:text-blush-700">
                   Recordatorios de celebraciones
                 </Link>
               </li>
@@ -131,12 +133,12 @@ export async function Footer() {
             © {new Date().getFullYear()} {b.name}. Elaborado artesanalmente en {b.city}.
           </p>
           <nav aria-label="Información legal" className="flex flex-wrap gap-x-4 gap-y-2">
-            <Link href="/aviso-legal" className="hover:text-cocoa-800">Aviso legal</Link>
-            <Link href="/privacidad" className="hover:text-cocoa-800">Privacidad</Link>
-            <Link href="/cookies" className="hover:text-cocoa-800">Cookies</Link>
-            <Link href="/condiciones-de-compra" className="hover:text-cocoa-800">Condiciones de compra</Link>
-            <Link href="/cancelaciones" className="hover:text-cocoa-800">Cancelaciones</Link>
-            <Link href="/alergenos" className="hover:text-cocoa-800">Alérgenos</Link>
+            <Link prefetch={false} href="/aviso-legal" className="hover:text-cocoa-800">Aviso legal</Link>
+            <Link prefetch={false} href="/privacidad" className="hover:text-cocoa-800">Privacidad</Link>
+            <Link prefetch={false} href="/cookies" className="hover:text-cocoa-800">Cookies</Link>
+            <Link prefetch={false} href="/condiciones-de-compra" className="hover:text-cocoa-800">Condiciones de compra</Link>
+            <Link prefetch={false} href="/cancelaciones" className="hover:text-cocoa-800">Cancelaciones</Link>
+            <Link prefetch={false} href="/alergenos" className="hover:text-cocoa-800">Alérgenos</Link>
             <CookieSettingsLink />
           </nav>
         </div>
