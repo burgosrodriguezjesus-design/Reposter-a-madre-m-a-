@@ -44,7 +44,7 @@ export const DEMO_CATEGORIES = [
     image: "/demo/tarta-personalizada-nombre.svg",
     description: "Diseñadas contigo: sabores, colores, nombre y decoración a tu gusto.",
     content:
-      "Una tarta personalizada empieza siempre con una conversación: para quién es, qué le gusta y qué queréis celebrar. A partir de ahí elegimos juntos el bizcocho, el relleno, la cobertura y la decoración, y te enseñamos un precio claro antes de confirmar nada.\n\nTrabajamos con mantequilla, huevos camperos y fruta de temporada. No usamos bizcochos congelados: cada tarta se hornea entre 24 y 48 horas antes de la entrega para que llegue en su punto.\n\nSi tienes una idea muy concreta, súbenos una foto de inspiración desde el personalizador. Para diseños con figuras modeladas o temáticas complejas te preparamos un presupuesto a medida sin compromiso.",
+      "Una tarta personalizada empieza siempre con una conversación: para quién es, qué le gusta y qué queréis celebrar. A partir de ahí elegimos juntos el bizcocho, el relleno, la cobertura y la decoración, y te enseñamos un precio claro antes de confirmar nada.\n\nTrabajamos con mantequilla, huevos camperos y fruta de temporada. No usamos bizcochos congelados: cada tarta se hornea entre 24 y 48 horas antes de la recogida para que esté en su punto.\n\nSi tienes una idea muy concreta, súbenos una foto de inspiración desde el personalizador. Para diseños con figuras modeladas o temáticas complejas te preparamos un presupuesto a medida sin compromiso.",
   },
   {
     slug: "tartas-de-cumpleanos",
@@ -52,7 +52,7 @@ export const DEMO_CATEGORIES = [
     image: "/demo/tarta-cumpleanos-velas.svg",
     description: "Las favoritas para soplar velas: chocolate, red velvet, queso, zanahoria…",
     content:
-      "Nuestras tartas de cumpleaños están pensadas para gustar a todos los invitados, de los más pequeños a los abuelos. Puedes elegir el tamaño según el número de personas y añadir una dedicatoria escrita a mano con chocolate.\n\nLas más pedidas son la tarta de queso al horno, la de triple chocolate y la red velvet. Todas se pueden encargar con 48 horas de antelación y recogerse en el obrador o recibirse en casa dentro de nuestra zona de reparto.",
+      "Nuestras tartas de cumpleaños están pensadas para gustar a todos los invitados, de los más pequeños a los abuelos. Puedes elegir el tamaño según el número de personas y añadir una dedicatoria escrita a mano con chocolate.\n\nLas más pedidas son la tarta de queso al horno, la de triple chocolate y la red velvet. Todas se pueden encargar con 48 horas de antelación y recogerse en nuestro puesto el día y a la hora que elijas.",
   },
   {
     slug: "tartas-de-boda",
@@ -604,7 +604,7 @@ export const DEMO_PRODUCTS: DemoProduct[] = [
     image: "/demo/mesa-dulce.svg",
     imageAlt: "Mesa dulce con soporte de cupcakes y macarons",
     short: "Cupcakes, macarons, galletas y mini postres coordinados con tu evento.",
-    description: "Diseñamos una mesa dulce completa con la paleta de colores de tu celebración. El precio incluye montaje dentro de nuestra zona de reparto; para otras zonas, pide presupuesto.",
+    description: "Diseñamos una mesa dulce completa con la paleta de colores de tu celebración. Consúltanos el montaje en tu evento y te preparamos un presupuesto a medida.",
     price: 18000,
     variants: [
       { name: "Para 25 personas", price: 18000 },
