@@ -17,7 +17,8 @@ export function escapeHtml(value: string | null | undefined): string {
     .replace(/'/g, "&#39;");
 }
 
-const C = { cream: "#FBF7F2", cocoa: "#3B2A22", muted: "#7A6458", rose: "#A84D60", gold: "#C29A4A", line: "#EADFD2" };
+// Colores del logotipo: crema, negro de línea y terracota
+const C = { cream: "#F6F0EB", cocoa: "#1F1E1C", muted: "#6F6B66", rose: "#1F1E1C", gold: "#B97561", line: "#E2D6CB" };
 
 function layout(settings: AllSettings, opts: { preheader: string; title: string; body: string; footerNote?: string }) {
   const b = settings.business;
@@ -25,8 +26,9 @@ function layout(settings: AllSettings, opts: { preheader: string; title: string;
 <body style="margin:0;background:${C.cream};font-family:Helvetica,Arial,sans-serif;color:${C.cocoa}">
 <span style="display:none;max-height:0;overflow:hidden">${escapeHtml(opts.preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream};padding:24px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid ${C.line}">
-<tr><td style="padding:28px 32px 8px;text-align:center;border-bottom:3px solid ${C.gold}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:4px;overflow:hidden;border:1px solid ${C.line}">
+<tr><td style="padding:28px 32px 8px;text-align:center;border-bottom:2px solid ${C.gold}">
+<img src="${siteUrl("/brand/logo-email.png")}" width="96" height="96" alt="${escapeHtml(b.name)}" style="display:block;margin:0 auto 10px;border:0;border-radius:50%">
 <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-style:italic;color:${C.cocoa}">${escapeHtml(b.name)}</div>
 <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:${C.muted};margin:6px 0 16px">${escapeHtml(b.tagline)}</div>
 </td></tr>
@@ -35,13 +37,13 @@ function layout(settings: AllSettings, opts: { preheader: string; title: string;
 ${opts.body}
 </td></tr>
 <tr><td style="padding:20px 32px;background:${C.cream};font-size:12px;line-height:18px;color:${C.muted};text-align:center">
-${escapeHtml(b.name)} · ${escapeHtml(b.street)}, ${escapeHtml(b.postalCode)} ${escapeHtml(b.city)} · ${escapeHtml(b.phone)}<br>
+${escapeHtml(b.name)} · ${b.venue ? `${escapeHtml(b.venue)} · ` : ""}${escapeHtml(b.street)}, ${escapeHtml(b.postalCode)} ${escapeHtml(b.city)} · ${escapeHtml(b.phone)}<br>
 ${opts.footerNote ?? ""}
 </td></tr></table></td></tr></table></body></html>`;
 }
 
 function button(href: string, label: string) {
-  return `<p style="margin:24px 0;text-align:center"><a href="${href}" style="display:inline-block;background:${C.rose};color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:999px;font-weight:bold">${escapeHtml(label)}</a></p>`;
+  return `<p style="margin:24px 0;text-align:center"><a href="${href}" style="display:inline-block;background:${C.rose};color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:0;font-weight:bold;letter-spacing:2px;text-transform:uppercase;font-size:12px">${escapeHtml(label)}</a></p>`;
 }
 
 function p(text: string) {

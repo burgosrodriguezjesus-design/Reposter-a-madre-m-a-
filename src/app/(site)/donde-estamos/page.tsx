@@ -30,8 +30,8 @@ export default async function LocationPage() {
       <header className="mt-6 max-w-3xl">
         <h1 className="font-display text-4xl text-cocoa-900 sm:text-5xl">Dónde estamos</h1>
         <p className="mt-3 text-lg text-cocoa-600">
-          Nuestro obrador y tienda están en {b.neighborhood ? `el barrio de ${b.neighborhood}, en ` : ""}
-          {b.city}. Ven a recoger tu pedido a la hora que elijas o te lo llevamos a casa.
+          {b.venue ? `${b.venue} · ${b.street}, ${b.city}.` : `${b.street}, ${b.city}.`} Encarga online y ven a recoger
+          tu pedido a la hora que elijas.
         </p>
       </header>
 
@@ -89,7 +89,7 @@ export default async function LocationPage() {
       )}
 
       <section className="mt-12">
-        <h2 className="font-display text-3xl text-cocoa-900">Nuestro obrador</h2>
+        <h2 className="font-display text-3xl text-cocoa-900">{b.venue ? "Nuestro puesto" : "Nuestro obrador"}</h2>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {photos.map((p) => (
             <div key={p.url} className="relative aspect-[3/2] overflow-hidden rounded-3xl border border-sand-300/60 bg-cream-200">

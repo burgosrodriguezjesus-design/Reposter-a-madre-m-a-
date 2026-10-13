@@ -24,6 +24,7 @@ export const settingsSchemas = {
     registryInfo: t(300),
     sanitaryRegistry: t(80),
     street: t(160).min(3),
+    venue: t(120),
     postalCode: t(10),
     city: t(80).min(2),
     province: t(80),

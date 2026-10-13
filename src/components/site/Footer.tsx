@@ -19,7 +19,7 @@ export async function Footer() {
       <div className="container-page grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-4">
           <Link href="/" className="flex items-center gap-2.5">
-            <BrandMark className="size-10" />
+            <BrandMark className="size-20" />
             <span className="font-display text-xl italic text-cocoa-900">{b.name}</span>
           </Link>
           <p className="text-sm leading-relaxed text-cocoa-600">{b.description}</p>

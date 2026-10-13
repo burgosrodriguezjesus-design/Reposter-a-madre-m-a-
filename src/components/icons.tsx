@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 /** Iconos de marcas (no incluidos en lucide). */
 type Props = { className?: string };
 
@@ -37,16 +39,7 @@ export function TikTokIcon({ className = "size-5" }: Props) {
 
 /** Marca: pequeña tarta con guinda en trazo dorado. */
 export function BrandMark({ className = "size-9" }: Props) {
-  // Porción de tarta de línea fina en negro con una guinda dorada
-  return (
-    <svg viewBox="0 0 48 48" aria-hidden="true" className={className} fill="none" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M7 36 39 25v11z" stroke="#111110" strokeWidth="1.6" />
-      <path d="M7 36 39 25" stroke="#111110" strokeWidth="1.6" />
-      <path d="M7 36c4-1 6 1.6 9 .3s5-3 8.5-3.6 6.5-.6 8.5-2.2 4.5-2.9 6-3" stroke="#111110" strokeWidth="1.1" opacity=".55" />
-      <path d="M12 36v0M20 36v0M28 36v0M35 36v0" stroke="#111110" strokeWidth="1" opacity=".35" />
-      <path d="M7 36c2.5-3.2 7.5-6.5 13-8.7S32 23.6 39 25" stroke="#111110" strokeWidth="1.6" />
-      <path d="M26 21.5c.7-3 2.8-5.5 5.5-6.8" stroke="#7a6139" strokeWidth="1.2" />
-      <circle cx="25.6" cy="23.6" r="2.6" fill="#b8955b" />
-    </svg>
-  );
+  // Logotipo de la repostería (public/brand, generado con scripts/generate-brand.ts). Siempre va
+  // junto al nombre en texto, así que es decorativo para lectores de pantalla.
+  return <Image src="/brand/logo-256.webp" alt="" width={256} height={256} className={`${className} shrink-0 rounded-full`} aria-hidden />;
 }

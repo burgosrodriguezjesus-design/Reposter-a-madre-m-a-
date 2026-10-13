@@ -46,7 +46,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <header className="sticky top-0 z-30 flex h-14 print:hidden items-center gap-3 border-b border-sand-300/70 bg-cream-100/90 px-4 backdrop-blur lg:hidden">
           <AdminMobileNav counts={counts} perms={perms} footer={footer} />
           <Link href="/admin" className="flex items-center gap-2">
-            <BrandMark className="size-8" />
+            <BrandMark className="size-10" />
             <span className="font-display text-lg italic">{settings.business.name}</span>
           </Link>
         </header>

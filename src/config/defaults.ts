@@ -3,7 +3,7 @@
  * ║  VALORES INICIALES DEL NEGOCIO                                     ║
  * ║  Se cargan en la base de datos con `npm run db:seed` y después se  ║
  * ║  editan cómodamente desde el panel: /admin/ajustes                 ║
- * ║  Los datos de dirección y teléfono son de EJEMPLO: sustitúyelos.   ║
+ * ║  Teléfono, email y datos fiscales son de EJEMPLO: sustitúyelos.    ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 import type {
@@ -19,18 +19,20 @@ export const DEFAULT_BUSINESS: BusinessSettings = {
   name: "Repostería Madre Mía",
   tagline: "Tartas y dulces artesanales hechos con cariño",
   description:
-    "Obrador de repostería artesanal: tartas personalizadas, tartas de cumpleaños y de boda, cupcakes, galletas y postres elaborados cada día con ingredientes de calidad.",
+    "Repostería artesanal en el Mercado de Bailén (Málaga): tartas personalizadas, tartas de cumpleaños y de boda, cupcakes, galletas y postres hechos a mano con ingredientes de calidad.",
   legalName: "[Razón social o nombre del titular]",
   taxId: "[NIF/CIF]",
   registryInfo: "",
   sanitaryRegistry: "[Nº de Registro Sanitario]",
-  street: "Calle de Ejemplo, 12",
-  postalCode: "28010",
-  city: "Madrid",
-  province: "Madrid",
-  neighborhood: "Chamberí",
-  latitude: 40.4342,
-  longitude: -3.7038,
+  venue: "Mercado de Bailén, puestos 70-71",
+  street: "Plaza de Bailén, 8",
+  postalCode: "29009",
+  city: "Málaga",
+  province: "Málaga",
+  neighborhood: "Bailén-Miraflores",
+  // Coordenadas del Mercado de Bailén (comprobadas en una sola fuente: verifícalas en Google Maps)
+  latitude: 36.7245674,
+  longitude: -4.4322519,
   phone: "+34 600 000 000",
   whatsapp: "+34 600 000 000",
   email: "hola@tudominio.es",
@@ -40,7 +42,7 @@ export const DEFAULT_BUSINESS: BusinessSettings = {
   googleBusinessUrl: "",
   googleReviewUrl: "",
   howToGetThere:
-    "A 3 minutos a pie de la parada de metro más cercana. Hay aparcamiento público a dos calles. Si vienes a recoger una tarta grande, puedes parar un momento en la zona de carga y descarga de la puerta.",
+    "Estamos dentro del Mercado de Bailén, en los puestos 70-71. La entrada principal da a la Plaza de Bailén. Recoge tu pedido en el puesto a la hora que hayas elegido, dentro del horario del mercado.",
   heroImageUrl: "",
   heroImageAlt: "",
   storePhotos: [],

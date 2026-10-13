@@ -9,6 +9,8 @@ export type BusinessSettings = {
   registryInfo: string;
   sanitaryRegistry: string;
   street: string;
+  /** Lugar dentro de la dirección (p. ej. mercado y número de puesto) */
+  venue: string;
   postalCode: string;
   city: string;
   province: string;

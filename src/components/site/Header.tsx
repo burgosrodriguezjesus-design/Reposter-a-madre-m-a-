@@ -23,7 +23,7 @@ export async function Header() {
     <header className="sticky top-0 z-40 border-b border-cocoa-900/[0.06] bg-cream-100/90 backdrop-blur-md">
       <div className="container-page flex h-16 items-center justify-between gap-6 lg:h-[84px]">
         <Link href="/" className="flex items-center gap-3" aria-label={`${business.name}, ir al inicio`}>
-          <BrandMark className="size-8 lg:size-9" />
+          <BrandMark className="size-12 lg:size-[60px]" />
           <span className="leading-none">
             <span className="block font-display text-xl text-cocoa-900 italic lg:text-[1.4rem]">{business.name}</span>
             <span className="mt-1 hidden text-[9px] font-semibold tracking-[0.26em] whitespace-nowrap text-gold-700 uppercase sm:block">

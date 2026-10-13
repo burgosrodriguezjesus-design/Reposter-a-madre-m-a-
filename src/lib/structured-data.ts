@@ -9,7 +9,7 @@ import { absoluteUrl, siteUrl } from "@/lib/site-url";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export function fullAddress(b: BusinessSettings) {
-  return `${b.street}, ${b.postalCode} ${b.city}${b.province && b.province !== b.city ? `, ${b.province}` : ""}`;
+  return `${b.venue ? `${b.venue}, ` : ""}${b.street}, ${b.postalCode} ${b.city}${b.province && b.province !== b.city ? `, ${b.province}` : ""}`;
 }
 
 export function mapsSearchUrl(b: BusinessSettings) {
@@ -40,13 +40,13 @@ export function bakerySchema(settings: AllSettings, schedule: OpeningSchedule, a
     url: siteUrl(),
     telephone: b.phone,
     email: b.email || undefined,
-    image: [absoluteUrl(b.heroImageUrl || "/demo/og-default.jpg")],
-    logo: siteUrl("/icon.svg"),
+    image: [absoluteUrl(b.heroImageUrl || "/brand/og.jpg")],
+    logo: siteUrl("/brand/logo-512.webp"),
     priceRange: b.priceRange,
     currenciesAccepted: "EUR",
     address: {
       "@type": "PostalAddress",
-      streetAddress: b.street,
+      streetAddress: b.venue ? `${b.street} (${b.venue})` : b.street,
       postalCode: b.postalCode,
       addressLocality: b.city,
       addressRegion: b.province,

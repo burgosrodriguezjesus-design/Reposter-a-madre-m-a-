@@ -654,32 +654,16 @@ export const DEMO_PRODUCTS: DemoProduct[] = [
   },
 ];
 
+// Zona de reparto de EJEMPLO alrededor del mercado: añade tus códigos postales y precios reales
+// en /admin/reparto (o desactiva el envío a domicilio si solo hay recogida en el puesto).
 export const DEMO_ZONES = [
   {
-    slug: "chamberi",
-    name: "Chamberí",
-    postalCodes: ["28003", "28010", "28015"],
+    slug: "bailen-miraflores",
+    name: "Bailén-Miraflores",
+    postalCodes: ["29009"],
     fee: 400,
     minOrder: 2000,
     freeFrom: 6000,
-    description: "",
-  },
-  {
-    slug: "centro",
-    name: "Centro",
-    postalCodes: ["28004", "28005", "28012", "28013", "28014"],
-    fee: 500,
-    minOrder: 2500,
-    freeFrom: 7000,
-    description: "",
-  },
-  {
-    slug: "salamanca-retiro",
-    name: "Salamanca y Retiro",
-    postalCodes: ["28001", "28006", "28009", "28007", "28028"],
-    fee: 600,
-    minOrder: 3000,
-    freeFrom: 8000,
     description: "",
   },
 ];
@@ -715,11 +699,6 @@ export const DEMO_PROMOTIONS = [
   },
 ];
 
-// Horario por defecto: martes a sábado mañana y tarde, domingo por la mañana, lunes cerrado.
-export const DEFAULT_OPENING_HOURS = [
-  ...[2, 3, 4, 5, 6].flatMap((weekday) => [
-    { weekday, opensAt: "09:30", closesAt: "14:00" },
-    { weekday, opensAt: "17:00", closesAt: "20:30" },
-  ]),
-  { weekday: 0, opensAt: "09:30", closesAt: "14:30" },
-];
+// Horario por defecto: el del Mercado de Bailén, de lunes a sábado por la mañana (las fuentes
+// públicas dan 9:00-14:00 u 8:00-15:00: confírmalo y ajústalo en /admin/ajustes → Horario).
+export const DEFAULT_OPENING_HOURS = [1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opensAt: "09:00", closesAt: "14:00" }));

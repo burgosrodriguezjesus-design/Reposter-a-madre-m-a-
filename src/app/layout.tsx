@@ -30,7 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       locale: "es_ES",
       siteName: business.name,
-      images: [{ url: business.heroImageUrl || "/demo/og-default.jpg", width: 1200, height: 630 }],
+      images: [{ url: business.heroImageUrl || "/brand/og.jpg", width: 1200, height: 630 }],
     },
     twitter: { card: "summary_large_image" },
     verification: seo.googleSiteVerification ? { google: seo.googleSiteVerification } : undefined,
@@ -39,7 +39,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#EEECE8",
+  themeColor: "#F6F0EB",
   width: "device-width",
   initialScale: 1,
 };

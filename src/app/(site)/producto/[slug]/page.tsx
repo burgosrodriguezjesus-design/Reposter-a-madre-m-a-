@@ -106,7 +106,7 @@ export default async function ProductPage({ params }: PageProps<"/producto/[slug
               <CalendarClock className="size-4 text-gold-600" /> {leadTimeText(leadHours)}
             </li>
             <li className="flex items-center gap-2">
-              <Store className="size-4 text-gold-600" /> Recogida en {b.neighborhood || b.city}
+              <Store className="size-4 text-gold-600" /> Recogida en {b.venue || b.neighborhood || b.city}
             </li>
             {settings.ordering.deliveryEnabled && (
               <li className="flex items-center gap-2">

@@ -17,6 +17,7 @@ const BUSINESS_FIELDS: FieldDef[] = [
   { name: "name", label: "Nombre comercial", type: "text" },
   { name: "tagline", label: "Eslogan", type: "text", hint: "Aparece como titular principal de la portada." },
   { name: "description", label: "Descripción del negocio", type: "textarea", hint: "Se usa en Google y en el pie de página (150-300 caracteres)." },
+  { name: "venue", label: "Lugar (mercado, centro comercial…)", type: "text", hint: "Ej.: «Mercado de Bailén, puestos 70-71». Aparece en la portada, en «Dónde estamos» y en los emails." },
   { name: "street", label: "Dirección (calle y número)", type: "text" },
   { name: "postalCode", label: "Código postal", type: "text" },
   { name: "city", label: "Ciudad", type: "text", hint: "Se usa en títulos y en las páginas locales para Google." },

@@ -1,37 +1,39 @@
 @import "tailwindcss";
 
 @theme {
-  /* Estética: fondo crema grisáceo, negro tinta y oro viejo (estilo «Delight») */
+  /* Estética: crema cálido, negro de línea y terracota (logotipo) con la composición del estilo «Delight» */
   --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-cormorant), Georgia, "Times New Roman", serif;
   --font-script: var(--font-great-vibes), "Brush Script MT", cursive;
 
-  --color-cream-50: #f8f7f5;
-  --color-cream-100: #eeece8;
-  --color-cream-200: #e5e2dd;
-  --color-cream-300: #dad6cf;
+  /* Colores del logotipo: crema cálido (#F9F4F0), terracota (#B97561) y negro de línea */
+  --color-cream-50: #fcf9f6;
+  --color-cream-100: #f6f0eb;
+  --color-cream-200: #ede4dc;
+  --color-cream-300: #e2d6cb;
 
-  --color-sand-300: #d9d3c9;
-  --color-sand-400: #c4bbad;
-  --color-sand-500: #a89d8c;
+  --color-sand-300: #e0d2c6;
+  --color-sand-400: #c9b6a6;
+  --color-sand-500: #ab9483;
 
-  /* «blush» era el acento rosa: ahora champán/oro suave para toda la web y el panel */
-  --color-blush-50: #faf8f4;
-  --color-blush-100: #f3eee5;
-  --color-blush-200: #e7dcc9;
-  --color-blush-300: #d6c3a3;
-  --color-blush-400: #c2a67a;
-  --color-blush-500: #a98a5a;
-  --color-blush-600: #8c7147;
-  --color-blush-700: #6f5937;
-  --color-blush-800: #54432a;
+  /* «blush»: nude/terracota suave (fondos, insignias, foco) */
+  --color-blush-50: #fcf7f4;
+  --color-blush-100: #f6ebe5;
+  --color-blush-200: #ecd6cb;
+  --color-blush-300: #ddb8a8;
+  --color-blush-400: #cb9581;
+  --color-blush-500: #b97561;
+  --color-blush-600: #9b5d4a;
+  --color-blush-700: #7c4939;
+  --color-blush-800: #5d372b;
 
-  --color-gold-200: #efe5d1;
-  --color-gold-300: #e0cda8;
-  --color-gold-400: #ccb07c;
-  --color-gold-500: #b8955b;
-  --color-gold-600: #997a48;
-  --color-gold-700: #7a6139;
+  /* «gold» (acento principal): terracota del logotipo. 600-700 para texto pequeño (contraste ≥ 4,5:1) */
+  --color-gold-200: #f1e0d8;
+  --color-gold-300: #e3c0b2;
+  --color-gold-400: #cf9b87;
+  --color-gold-500: #b97561;
+  --color-gold-600: #9b5a47;
+  --color-gold-700: #7c4637;
 
   /* «cocoa» (texto) pasa a negro tinta y grises cálidos */
   --color-cocoa-400: #8f8b86;
@@ -124,13 +126,16 @@
   .lead-serif {
     @apply font-display text-lg leading-relaxed text-cocoa-600 italic sm:text-xl;
   }
-  /* Separador fino dorado con un punto central */
+  /* Separador fino terracota con un corazón central (como en el logotipo) */
   .divider-dot {
-    @apply relative mx-auto h-px w-28 bg-gold-400/70;
+    @apply relative mx-auto h-px w-40;
+    background: linear-gradient(to right, var(--color-gold-400) 0 40%, transparent 40% 60%, var(--color-gold-400) 60% 100%);
   }
   .divider-dot::after {
     content: "";
-    @apply absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-gold-500;
+    @apply absolute top-1/2 left-1/2 h-3 w-[26px] -translate-x-1/2 -translate-y-1/2 bg-center bg-no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21s-9-5.6-9-12a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6.4-9 12-9 12z' fill='%23b97561'/%3E%3C/svg%3E");
+    background-size: 13px 12px;
   }
   .btn,
   .btn-primary,

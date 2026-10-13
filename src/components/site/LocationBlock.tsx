@@ -13,9 +13,9 @@ export function LocationBlock({ business: b, schedule }: { business: BusinessSet
       <MapEmbed src={mapsEmbedUrl(b)} title={`Mapa de ${b.name}`} />
       <div className="card p-6 sm:p-8">
         <h3 className="flex items-center gap-2 font-display text-2xl text-cocoa-900">
-          <MapPin className="size-5 text-gold-600" /> {b.neighborhood ? `${b.neighborhood}, ${b.city}` : b.city}
+          <MapPin className="size-5 text-gold-600" /> {b.venue || (b.neighborhood ? `${b.neighborhood}, ${b.city}` : b.city)}
         </h3>
-        <p className="mt-2 text-cocoa-700">{fullAddress(b)}</p>
+        <p className="mt-2 text-cocoa-700">{b.venue ? `${b.street}, ${b.postalCode} ${b.city}` : fullAddress(b)}</p>
         <div className="mt-5 flex flex-wrap gap-2">
           <a href={mapsDirectionsUrl(b)} target="_blank" rel="noopener noreferrer" className="btn-primary btn-sm">
             <Navigation className="size-4" /> Cómo llegar

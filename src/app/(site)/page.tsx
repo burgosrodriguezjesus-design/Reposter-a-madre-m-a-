@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, ChefHat, Leaf, ShieldCheck, Sparkles, Truck } from "lucide-react";
+import { ArrowRight, CalendarCheck, ChefHat, Leaf, MapPin, ShieldCheck, Sparkles, Truck } from "lucide-react";
 import { ProductCard } from "@/components/site/ProductCard";
 import { ReviewCard } from "@/components/site/ReviewCard";
 import { LocationBlock } from "@/components/site/LocationBlock";
@@ -55,8 +55,8 @@ export default async function HomePage() {
             </h1>
             <div className="divider-dot my-7" aria-hidden />
             <p className="lead-serif mx-auto max-w-lg">
-              Tartas personalizadas, de cumpleaños, cupcakes y postres elaborados a mano cada día en nuestro obrador
-              {b.neighborhood ? ` de ${b.neighborhood}` : ""}. Encarga online y recoge en tienda o recíbelo en casa.
+              Tartas personalizadas, de cumpleaños, cupcakes y postres hechos a mano con cariño. Encarga online, elige
+              día y hora, y pasa a recogerlo sin esperas.
             </p>
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link href="/productos" className="btn-primary w-full sm:w-auto">
@@ -79,7 +79,8 @@ export default async function HomePage() {
                 <CalendarCheck className="size-3.5 text-gold-600" /> Reserva desde {settings.ordering.minLeadHours} h
               </span>
               <span className="flex items-center gap-2">
-                <Truck className="size-3.5 text-gold-600" /> Recogida o envío
+                <MapPin className="size-3.5 text-gold-600" />
+                <span className="whitespace-nowrap">{b.venue || b.street}</span> · {b.city}
               </span>
             </div>
           </div>
@@ -299,7 +300,7 @@ export default async function HomePage() {
 
       {/* ───────── Ubicación ───────── */}
       <section className="container-page py-20" id="ubicacion">
-        <SectionHeading eyebrow="Dónde estamos" title={`Visítanos en ${b.neighborhood || b.city}`} />
+        <SectionHeading eyebrow="Dónde estamos" title={`Visítanos en ${b.city}`} text={b.venue ? `${b.venue} · ${b.street}` : undefined} />
         <div className="mt-12">
           <LocationBlock business={b} schedule={schedule} />
         </div>

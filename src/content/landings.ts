@@ -39,7 +39,7 @@ export function getLandings(b: BusinessSettings): Landing[] {
       metaTitle: `Repostería artesanal en ${city} | Tartas y dulces por encargo`,
       metaDescription: `Obrador de repostería artesanal en ${city}: tartas, cupcakes, galletas y postres elaborados a diario con mantequilla e ingredientes de calidad. Encarga online.`,
       intro: [
-        `En ${b.name} horneamos cada día en nuestro obrador de ${b.neighborhood ? `${b.neighborhood}, en ` : ""}${city}. Sin bizcochos industriales ni premezclas: mantequilla de verdad, huevos camperos, fruta de temporada y chocolate de calidad.`,
+        `En ${b.name} hacemos a mano cada tarta y cada dulce${b.venue ? `, y los recoges en ${b.venue}, en ${city}` : ` en ${city}`}. Sin bizcochos industriales ni premezclas: mantequilla de verdad, huevos camperos, fruta de temporada y chocolate de calidad.`,
         "Puedes elegir entre nuestras recetas de siempre o encargarnos algo hecho a tu medida. Todo se reserva online en unos minutos, eligiendo el día y la hora de recogida o entrega.",
       ],
       showBestsellers: true,
@@ -82,7 +82,7 @@ export function getLandings(b: BusinessSettings): Landing[] {
       metaDescription: `Tartas de cumpleaños artesanales en ${city}: chocolate, queso, red velvet o personalizadas con nombre. Elige tamaño por número de invitados y encarga online.`,
       intro: [
         "Elegir la tarta de cumpleaños debería ser la parte fácil de organizar la fiesta. Por eso te indicamos en cada tarta cuántas raciones da cada tamaño y te dejamos añadir la dedicatoria y las velas en el mismo pedido.",
-        `Las recogidas son en nuestro obrador de ${city} y, si lo prefieres, te la llevamos a casa dentro de nuestras zonas de reparto.`,
+        `Las recogidas son en ${b.venue || `nuestra tienda de ${city}`} y, si lo prefieres, te la llevamos a casa dentro de nuestras zonas de reparto.`,
       ],
       categorySlug: "tartas-de-cumpleanos",
       highlights: [
@@ -147,7 +147,7 @@ export function getLandings(b: BusinessSettings): Landing[] {
       metaTitle: `Pastelería cerca de ${b.neighborhood} (${city}) | ${b.name}`,
       metaDescription: `Pastelería artesanal en ${b.neighborhood}, ${city}: tartas, cupcakes y dulces por encargo. Dirección, horario, cómo llegar y recogida en tienda.`,
       intro: [
-        `Estamos en ${b.street}, en pleno ${b.neighborhood}. Si vives o trabajas cerca, puedes encargar online y pasar a recoger tu pedido a la hora que elijas, sin esperas.`,
+        `Estamos en ${b.venue ? `${b.venue} (${b.street})` : b.street}, en pleno ${b.neighborhood}. Si vives o trabajas cerca, puedes encargar online y pasar a recoger tu pedido a la hora que elijas, sin esperas.`,
         b.howToGetThere,
       ],
       showBestsellers: true,
