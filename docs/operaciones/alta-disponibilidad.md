@@ -154,7 +154,7 @@ producto 5 min, horario y bloqueos 30 s, ocupación agregada 5 s.
 | PgBouncer | `pool_mode = transaction`, `max_client_conn = 500`, `default_pool_size = 20`, `reserve_pool_size = 5`, `max_db_connections = 40`, `reposteria_app max_user_connections = 40`, `query_wait_timeout = 15`, `idle_transaction_timeout = 60`, `max_prepared_statements = 200`; TLS obligatorio hacia Postgres | `infra/pgbouncer/pgbouncer.ini` |
 | Prisma (Compose) | `?pgbouncer=true&connection_limit=10` por instancia | `infra/postgres/gen-secrets.sh` (`app.env.fragment`) |
 | Prisma (Kubernetes) | `?pgbouncer=true&connection_limit=10` (comentario) | `infra/k8s/externalsecret.yaml` |
-| Prisma (Vercel + Supabase) | pooler de transacción + `?pgbouncer=true`; **no se fija `connection_limit`** en la documentación del repo. En serverless conviene empezar con `connection_limit=1` y ajustar midiendo | `.env.example`, `README.md` |
+| Prisma (Vercel + Supabase) | pooler de transacción + `?pgbouncer=true&connection_limit=5&pool_timeout=30`. Con `connection_limit=1` la compilación de Vercel (que genera muchas páginas a la vez desde EE. UU. contra una BD en París) falló por espera de conexión (P2024, 10 s); probado el 13-10-2026 con 5/30 s: compilación correcta | Variables del proyecto en Vercel |
 | PostgreSQL | `max_connections = 100`, `idle_in_transaction_session_timeout = 60s`; `statement_timeout`/`lock_timeout` por rol | `infra/postgres/postgresql.conf`, `prisma/sql/least-privilege.sql` |
 
 Regla de dimensionado: `réplicas × connection_limit ≤ max_client_conn` de PgBouncer, y
