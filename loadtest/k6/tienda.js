@@ -11,7 +11,7 @@
  *   k6 run -e BASE_URL=https://staging.example.es -e PERFIL=500 -e AUTORIZADO=si loadtest/k6/tienda.js
  *
  * PERFIL: humo (5 VU) · 100 · 500 · 1000 · 5000 · 10000 (rampa, meseta y bajada) · escalera
- * (100 → 300 → 600 → 1000 VU, un minuto por nivel, para encontrar el límite).
+ * (100 → 300 → 600 → 1000 VU, un minuto por nivel, para encontrar el límite) · limite (1000 → 3000 VU).
  * Para 5000+ VU usa varios generadores (k6 distribuido / k6 Cloud): un solo equipo se
  * convierte en el cuello de botella y falsea el resultado.
  * Con LOADTEST_IP=1 envía X-Loadtest-IP (solo lo respeta el balanceador de pruebas de
@@ -53,6 +53,17 @@ const PERFILES = {
       { duration: "45s", target: 300 }, { duration: "1m", target: 300 },
       { duration: "45s", target: 600 }, { duration: "1m", target: 600 },
       { duration: "45s", target: 1000 }, { duration: "1m", target: 1000 },
+      { duration: "30s", target: 0 },
+    ],
+  },
+  // Continuación de la escalera por encima de 1000 VU
+  limite: {
+    vus: 3000,
+    stages: [
+      { duration: "1m", target: 1000 }, { duration: "1m", target: 1000 },
+      { duration: "45s", target: 1500 }, { duration: "1m", target: 1500 },
+      { duration: "45s", target: 2000 }, { duration: "1m", target: 2000 },
+      { duration: "45s", target: 3000 }, { duration: "1m", target: 3000 },
       { duration: "30s", target: 0 },
     ],
   },
