@@ -84,6 +84,7 @@ async function processPrivateFiles(): Promise<{ pending: number; unreadable: num
     console.log("Fotos privadas         en Supabase Storage: las nuevas se suben cifradas; las anteriores a esta versión siguen en claro hasta que caduquen (90-150 días) o se vuelvan a subir.");
     return { pending: 0, unreadable: 0 };
   }
+  if (process.env.STORAGE_DRIVER === "database") return processPrivateRows();
   const root = path.resolve(process.env.UPLOAD_DIR || "./uploads", "private");
   const files: string[] = [];
   const walk = async (dir: string) => {
@@ -113,6 +114,42 @@ async function processPrivateFiles(): Promise<{ pending: number; unreadable: num
     }
   }
   console.log(`${"Fotos privadas".padEnd(20)} ${String(files.length).padStart(6)} archivos · ${pending} ${checkOnly ? "pendientes" : "cifrados"}${unreadable ? ` · ${unreadable} ilegibles` : ""}`);
+  return { pending: checkOnly ? pending : 0, unreadable };
+}
+
+/** Fotos privadas en la base de datos (STORAGE_DRIVER=database): re-cifra al rotar la clave. */
+async function processPrivateRows(): Promise<{ pending: number; unreadable: number }> {
+  const active = activeKeyId();
+  let scanned = 0;
+  let pending = 0;
+  let unreadable = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    const rows = await prisma.storedFile.findMany({
+      where: { key: { startsWith: "private/references/" } },
+      take: 20,
+      orderBy: { key: "asc" },
+      ...(cursor ? { cursor: { key: cursor }, skip: 1 } : {}),
+    });
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      scanned++;
+      const data = Buffer.from(row.data);
+      const kid = isEncryptedBuffer(data) ? data.subarray(9, 9 + data[8]).toString("utf8") : null;
+      if (kid === active) continue;
+      pending++;
+      if (checkOnly) continue;
+      const key = row.key.slice("private/".length);
+      try {
+        const sealed = encryptBuffer(decryptBuffer(data, `media:${key}`), `media:${key}`);
+        await prisma.storedFile.update({ where: { key: row.key }, data: { data: new Uint8Array(sealed), size: sealed.length } });
+      } catch {
+        unreadable++;
+      }
+    }
+    cursor = rows.at(-1)!.key;
+  }
+  console.log(`${"Fotos privadas".padEnd(20)} ${String(scanned).padStart(6)} archivos · ${pending} ${checkOnly ? "pendientes" : "cifrados"}${unreadable ? ` · ${unreadable} ilegibles` : ""}`);
   return { pending: checkOnly ? pending : 0, unreadable };
 }
 

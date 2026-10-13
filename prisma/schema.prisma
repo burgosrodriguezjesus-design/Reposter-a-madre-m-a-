@@ -662,3 +662,14 @@ model DataRequest {
   @@index([status])
   @@index([emailHash])
 }
+
+// ─────────────────────────── Archivos ───────────────────────────
+
+/// Fotos guardadas en la propia base de datos (STORAGE_DRIVER=database). Las privadas
+/// (fotos de referencia de clientes) se guardan cifradas con AES-256-GCM.
+model StoredFile {
+  key       String   @id
+  data      Bytes
+  size      Int
+  createdAt DateTime @default(now())
+}

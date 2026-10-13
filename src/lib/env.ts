@@ -35,7 +35,7 @@ export function checkEnvironment(): { errors: string[]; warnings: string[] } {
   need(!!env.SMTP_HOST, "Sin SMTP_HOST no se envían emails a clientes", false);
   need(!(production && env.SMTP_ALLOW_PLAINTEXT === "true"), "SMTP_ALLOW_PLAINTEXT=true en producción: los emails viajarían sin cifrar", true);
   need(!!env.ALERT_EMAIL || !!env.ALERT_WEBHOOK_URL, "Define ALERT_EMAIL o ALERT_WEBHOOK_URL para recibir alertas de seguridad", false);
-  if (env.VERCEL) need(env.STORAGE_DRIVER === "supabase", "En Vercel el disco es efímero: usa STORAGE_DRIVER=supabase", true);
+  if (env.VERCEL) need(env.STORAGE_DRIVER === "supabase" || env.STORAGE_DRIVER === "database", "En Vercel el disco es efímero: usa STORAGE_DRIVER=supabase o database", true);
   if (production && env.ADMIN_PASSWORD) warnings.push("ADMIN_PASSWORD sigue definido en producción: bórralo tras crear el primer usuario");
   if (production && env.PASSWORD_BREACH_CHECK === "false") warnings.push("La comprobación de contraseñas filtradas está desactivada");
   if (production && env.DATABASE_URL && !/sslmode=(require|verify-full|verify-ca)|localhost|127\.0\.0\.1|@pgbouncer|@postgres[:/]/.test(env.DATABASE_URL)) {

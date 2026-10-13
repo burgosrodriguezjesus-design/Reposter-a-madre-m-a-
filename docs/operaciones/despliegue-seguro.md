@@ -42,7 +42,7 @@ producción**). Si hay errores, la instancia lanza una excepción al arrancar y 
 | `STRIPE_WEBHOOK_SECRET` si hay `STRIPE_SECRET_KEY` | Error | Error |
 | Clave de Stripe real (`sk_live_`/`rk_live_`) fuera de producción | — | Error |
 | Clave de Stripe de prueba en `APP_ENV=production` | Aviso | — |
-| En Vercel, `STORAGE_DRIVER=supabase` | Error | Error |
+| En Vercel, `STORAGE_DRIVER=supabase` o `database` | Error | Error |
 | `TRUST_PROXY`, `REDIS_URL`, `SMTP_HOST`, `ALERT_EMAIL`/`ALERT_WEBHOOK_URL` | Aviso | Aviso |
 | `ADMIN_PASSWORD` todavía definida, `PASSWORD_BREACH_CHECK=false`, `DATABASE_URL` sin `sslmode=require` | Aviso | — |
 
@@ -220,7 +220,7 @@ Configuración
 - [ ] `CRON_SECRET` y `METRICS_TOKEN` ≥ 32 caracteres; cron de `/api/cron` diario y `/api/cron/jobs` cada minuto (Vercel Pro) o cada 5 min con `cron-jobs.yml` (entorno `cron` de GitHub).
 - [ ] `TRUST_PROXY` acorde a la plataforma; `REDIS_URL` si hay varias instancias.
 - [ ] `ALERT_EMAIL` y/o `ALERT_WEBHOOK_URL` definidos y probados.
-- [ ] `STORAGE_DRIVER=supabase` (Vercel) con bucket privado para fotos de clientes.
+- [ ] `STORAGE_DRIVER=supabase` (Vercel) con bucket privado para fotos de clientes, o `STORAGE_DRIVER=database` (fotos en la BD; las de clientes cifradas).
 - [ ] `SMTP_ALLOW_PLAINTEXT` sin definir (en producción la app no arranca con `true`); SPF, DKIM y DMARC del dominio de envío.
 - [ ] `ADMIN_PASSWORD` borrada tras crear el primer propietario; el propietario tiene MFA y códigos de recuperación guardados; `SEED_DEMO=false` si se siembra en producción.
 

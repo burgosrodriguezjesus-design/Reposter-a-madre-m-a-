@@ -66,7 +66,7 @@ Leyenda de "Secreto": **S** = secreto; **C** = configuración sensible (no secre
 | `SMTP_USER` | C | Usuario SMTP. | Servidor | Con la contraseña. |
 | `SMTP_PASSWORD` | S | Contraseña/clave API SMTP. | Servidor | Anual o ante sospecha. |
 | `SMTP_ALLOW_PLAINTEXT` | C | Documentada en `.env.example` (`false`). `true` desactiva el STARTTLS obligatorio (`src/lib/email.ts`); solo para desarrollo: **en producción `checkEnvironment` impide arrancar**.  Servidor | — |
-| `STORAGE_DRIVER`, `SUPABASE_URL`, `SUPABASE_STORAGE_BUCKET`, `SUPABASE_PRIVATE_BUCKET`, `UPLOAD_DIR` | C | Almacenamiento de imágenes. En Vercel, `STORAGE_DRIVER=supabase` es obligatorio. `SUPABASE_URL` se fija también al compilar (`next.config.ts`). | Servidor | — |
+| `STORAGE_DRIVER`, `SUPABASE_URL`, `SUPABASE_STORAGE_BUCKET`, `SUPABASE_PRIVATE_BUCKET`, `UPLOAD_DIR` | C | Almacenamiento de imágenes. En Vercel, `STORAGE_DRIVER=supabase` o `database` es obligatorio (con `database` no hace falta `SUPABASE_SERVICE_ROLE_KEY`). `SUPABASE_URL` se fija también al compilar (`next.config.ts`). | Servidor | — |
 | `SUPABASE_SERVICE_ROLE_KEY` | S | Clave de servicio de Supabase (acceso total al proyecto). | Servidor | Anual o ante sospecha. |
 | `REDIS_URL` | S | Incluye la contraseña de Redis. | Servidor | Anual. |
 | `TRUST_PROXY` | C | De qué cabecera tomar la IP (`vercel`/`cloudflare`/`nginx`/`none`). | Servidor | — |

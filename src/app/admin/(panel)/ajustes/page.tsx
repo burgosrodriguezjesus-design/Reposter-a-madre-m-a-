@@ -94,7 +94,7 @@ export default async function SettingsPage() {
   const integrations = [
     { label: "Stripe (pagos)", ok: !!process.env.STRIPE_SECRET_KEY, extra: process.env.STRIPE_WEBHOOK_SECRET ? "webhook OK" : "falta STRIPE_WEBHOOK_SECRET" },
     { label: "Correo SMTP", ok: !!process.env.SMTP_HOST, extra: process.env.SMTP_HOST ?? "" },
-    { label: "Almacenamiento de fotos", ok: true, extra: process.env.STORAGE_DRIVER === "supabase" ? "Supabase Storage" : "Local (carpeta uploads)" },
+    { label: "Almacenamiento de fotos", ok: true, extra: process.env.STORAGE_DRIVER === "supabase" ? "Supabase Storage" : process.env.STORAGE_DRIVER === "database" ? "Base de datos" : "Local (carpeta uploads)" },
     { label: "WhatsApp Business API", ok: isWhatsAppApiConfigured(), extra: "opcional" },
     { label: "Tareas programadas (CRON_SECRET)", ok: !!process.env.CRON_SECRET, extra: "" },
   ];

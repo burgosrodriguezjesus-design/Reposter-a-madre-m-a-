@@ -25,8 +25,8 @@ export function setupChecklist(settings: AllSettings, hasDemo: boolean): SetupIt
     { label: "Correo electrónico (SMTP)", ok: !!process.env.SMTP_HOST, help: "Sin SMTP los emails de confirmación no se envían." },
     {
       label: "Almacenamiento de fotos",
-      ok: !onVercel || process.env.STORAGE_DRIVER === "supabase",
-      help: "En Vercel usa STORAGE_DRIVER=supabase para que las fotos no se pierdan.",
+      ok: !onVercel || process.env.STORAGE_DRIVER === "supabase" || process.env.STORAGE_DRIVER === "database",
+      help: "En Vercel usa STORAGE_DRIVER=supabase o database para que las fotos no se pierdan.",
     },
     { label: "Tareas programadas", ok: !!process.env.CRON_SECRET, help: "Define CRON_SECRET para recordatorios y limpieza automática." },
     { label: "Google Search Console", ok: !!settings.seo.googleSiteVerification, help: "Pega el código de verificación en Ajustes → SEO.", href: "/admin/ajustes" },

@@ -5,12 +5,15 @@ import { createHmac } from "node:crypto";
 import sharp from "sharp";
 import { secureToken } from "@/lib/ids";
 import { decryptBuffer, encryptBuffer, keyedHash, safeEqual } from "@/lib/crypto";
+import { db } from "@/lib/db";
 import { log } from "@/lib/logger";
 
 /**
  * Almacenamiento de fotografías.
  *  - STORAGE_DRIVER=local    → carpeta UPLOAD_DIR (por defecto ./uploads), servida en /uploads/...
  *  - STORAGE_DRIVER=supabase → Supabase Storage. Recomendado en Vercel.
+ *  - STORAGE_DRIVER=database → tabla StoredFile de la propia base de datos, servida en /uploads/...
+ *                              Válido en Vercel sin claves adicionales; adecuado para catálogos pequeños.
  * Fotos públicas (productos, negocio) y PRIVADAS (fotos de referencia de los clientes):
  * las privadas nunca tienen URL pública; se guardan como `private:references/...` y solo se
  * sirven con una URL firmada que caduca (ver `signedMediaUrl` y /api/media). Además se guardan
@@ -29,8 +32,11 @@ export type StoredImage = { url: string; width: number; height: number };
 
 export class UploadError extends Error {}
 
-function driver(): "local" | "supabase" {
-  return process.env.STORAGE_DRIVER === "supabase" ? "supabase" : "local";
+type Driver = "local" | "supabase" | "database";
+
+function driver(): Driver {
+  const d = process.env.STORAGE_DRIVER;
+  return d === "supabase" || d === "database" ? d : "local";
 }
 
 export function uploadDir(): string {
@@ -77,13 +83,16 @@ export async function saveImage(file: File, folder: Folder, maxWidth = 1600): Pr
   if (folder === "references") throw new UploadError("Las fotos de clientes se guardan con savePrivateImage");
   const output = await processImage(file, maxWidth);
   const key = `${folder}/${new Date().toISOString().slice(0, 7)}/${secureToken(12)}.webp`;
-  const url = driver() === "supabase" ? await putSupabase(key, output.data) : await putLocal(key, output.data);
+  const d = driver();
+  const url = d === "supabase" ? await putSupabase(key, output.data) : d === "database" ? await putDatabase(key, output.data) : await putLocal(key, output.data);
   return { url, width: output.info.width, height: output.info.height };
 }
 
 export async function deleteImage(url: string): Promise<void> {
   try {
-    if (url.startsWith("/uploads/")) {
+    if (url.startsWith("/uploads/") && driver() === "database") {
+      await db.storedFile.deleteMany({ where: { key: url.slice("/uploads/".length) } });
+    } else if (url.startsWith("/uploads/")) {
       const file = path.join(uploadDir(), url.replace("/uploads/", ""));
       if (file.startsWith(uploadDir())) await unlink(/*turbopackIgnore: true*/ file);
     } else if (driver() === "supabase" && url.includes("/storage/v1/object/public/")) {
@@ -125,7 +134,9 @@ export async function savePrivateImage(file: File): Promise<{ ref: string }> {
   const output = await processImage(file, 1600);
   const key = `references/${new Date().toISOString().slice(0, 7)}/${secureToken(12)}.webp`;
   const sealed = encryptBuffer(output.data, `media:${key}`);
-  if (driver() === "supabase") await putSupabase(key, sealed, privateBucket());
+  const d = driver();
+  if (d === "supabase") await putSupabase(key, sealed, privateBucket());
+  else if (d === "database") await putDatabase(`private/${key}`, sealed);
   else await putLocal(`private/${key}`, sealed);
   return { ref: `private:${key}` };
 }
@@ -141,7 +152,8 @@ export async function readPrivate(ref: string): Promise<Buffer | null> {
     });
     return res.ok ? openPrivate(Buffer.from(await res.arrayBuffer()), key) : null;
   }
-  const data = await readLocal(ref.startsWith("private:") ? `private/${key}` : key);
+  const relative = ref.startsWith("private:") ? `private/${key}` : key;
+  const data = driver() === "database" ? await readDatabase(relative) : await readLocal(relative);
   return data ? openPrivate(data, key) : null;
 }
 
@@ -167,6 +179,9 @@ export async function deletePrivate(ref: string): Promise<void> {
       });
       // 404 = ya no existe; cualquier otro fallo debe verse (si no, quedaría una foto huérfana)
       if (!res.ok && res.status !== 404) throw new Error(`Supabase respondió ${res.status} al borrar`);
+    } else if (driver() === "database") {
+      // deleteMany no falla si ya no existe: borrado completado
+      await db.storedFile.deleteMany({ where: { key: ref.startsWith("private:") ? `private/${key}` : key } });
     } else {
       const file = path.join(uploadDir(), ref.startsWith("private:") ? `private/${key}` : key);
       if (file.startsWith(uploadDir())) {
@@ -196,6 +211,21 @@ export function verifyMediaSignature(ref: string, exp: string, sig: string): boo
   const e = Number(exp);
   if (!isPrivateRef(ref) || !Number.isInteger(e) || e < Date.now() / 1000 || e > Date.now() / 1000 + 86_400) return false;
   return safeEqual(mediaSignature(ref, e), sig);
+}
+
+/** Foto pública (productos, negocio, categorías) para servir en /uploads/... con cualquier driver salvo supabase. */
+export async function readPublic(relative: string): Promise<Buffer | null> {
+  return driver() === "database" ? readDatabase(relative) : readLocal(relative);
+}
+
+async function putDatabase(key: string, data: Buffer): Promise<string> {
+  await db.storedFile.create({ data: { key, data: new Uint8Array(data), size: data.length } });
+  return `/uploads/${key}`;
+}
+
+async function readDatabase(key: string): Promise<Buffer | null> {
+  const row = await db.storedFile.findUnique({ where: { key }, select: { data: true } });
+  return row ? Buffer.from(row.data) : null;
 }
 
 async function putLocal(key: string, data: Buffer): Promise<string> {

@@ -186,7 +186,7 @@ Cualquier proveedor SMTP sirve. Ejemplo con **Resend** (gratis hasta 3.000 corre
 El email que recibe los avisos de pedidos se cambia en **Panel → Ajustes → Avisos**.
 
 ### Fotos
-- **Vercel**: `STORAGE_DRIVER=supabase` (obligatorio: el disco de Vercel no es persistente).
+- **Vercel**: `STORAGE_DRIVER=supabase` (recomendado) o `STORAGE_DRIVER=database` (las fotos se guardan en la propia base de datos, las de clientes cifradas; no necesita `SUPABASE_SERVICE_ROLE_KEY`, pero ocupa espacio de la BD: adecuado para catálogos pequeños). El disco de Vercel no es persistente, así que `local` no sirve.
 - **Servidor propio**: `STORAGE_DRIVER=local` (opcional `UPLOAD_DIR=/ruta/persistente`).
 Todas las fotos se recodifican a WebP, se redimensionan y se les quitan los metadatos (p. ej., ubicación GPS).
 
@@ -246,7 +246,7 @@ Los valores iniciales también están en `src/config/defaults.ts` y los textos d
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | ✅ (seed) | Primer usuario del panel (contraseña de 10+ caracteres). |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Pagos online | Sin ellas solo hay pago en tienda. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | Correos | Sin ellas los correos se muestran en el registro del servidor. |
-| `STORAGE_DRIVER` | ✅ | `supabase` (Vercel) o `local`. |
+| `STORAGE_DRIVER` | ✅ | `supabase` o `database` (Vercel), o `local` (servidor propio). |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET` | Si `supabase` | Bucket público para fotos. |
 | `UPLOAD_DIR` | Opcional | Carpeta de fotos con `local` (por defecto `./uploads`). |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NEW_ORDER`, `WHATSAPP_TEMPLATE_LANG`, `WHATSAPP_API_VERSION` | Opcional | API oficial de WhatsApp Business. |
