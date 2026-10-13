@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { getProducts } from "@/lib/catalog";
 import { getSettings } from "@/lib/settings";
 import { cache } from "react";
+import { metaDescription } from "@/lib/format";
 
 export const revalidate = 300;
 
@@ -24,9 +25,10 @@ export async function generateMetadata({ params }: PageProps<"/categoria/[slug]"
   if (!category) return {};
   return {
     title: category.seoTitle || `${category.name} en ${business.city}`,
-    description:
+    description: metaDescription(
       category.seoDescription ||
-      `${category.name} artesanales de ${business.name} en ${business.city}. ${category.description} Encarga online y recógelo en tienda.`,
+        `${category.name} artesanales de ${business.name} en ${business.city}. ${category.description} Encarga online y recógelo en tienda.`,
+    ),
     alternates: { canonical: `/categoria/${category.slug}` },
     openGraph: category.imageUrl && !category.imageUrl.endsWith(".svg") ? { images: [category.imageUrl] } : undefined,
   };

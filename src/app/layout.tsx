@@ -5,6 +5,7 @@ import { siteUrl } from "@/lib/site-url";
 import { isProductionEnv } from "@/lib/app-env";
 import "./globals.css";
 import "@/lib/taint";
+import { metaDescription } from "@/lib/format";
 
 // Se descargan al compilar y se sirven desde el propio dominio (sin peticiones a Google al navegar)
 const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
@@ -25,7 +26,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(siteUrl()),
     title: { default: title, template: `%s | ${business.name}` },
-    description: seo.homeDescription || business.description,
+    description: metaDescription(seo.homeDescription || business.description),
     applicationName: business.name,
     openGraph: {
       type: "website",

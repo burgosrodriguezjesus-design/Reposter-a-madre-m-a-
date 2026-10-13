@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CakeBuilder } from "@/components/site/builder/CakeBuilder";
 import { Breadcrumbs } from "@/components/site/ui";
 import { getSettings } from "@/lib/settings";
+import { metaDescription } from "@/lib/format";
 
 export const revalidate = 300;
 
@@ -10,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const { business } = await getSettings();
   return {
     title: `Diseña tu tarta personalizada en ${business.city}`,
-    description: `Personalizador de tartas de ${business.name}: elige tamaño, bizcocho, relleno, cobertura, colores, decoración y mensaje, y conoce el precio al momento. Pide presupuesto para diseños especiales.`,
+    description: metaDescription(`Diseña tu tarta en ${business.name}: tamaño, bizcocho, relleno, cobertura, colores y mensaje, con el precio al momento. Presupuesto para diseños especiales.`),
     alternates: { canonical: "/personalizar-tarta" },
   };
 }

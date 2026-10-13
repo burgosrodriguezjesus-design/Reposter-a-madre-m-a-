@@ -10,7 +10,7 @@ import { getProductBySlug, getRelatedProducts } from "@/lib/catalog";
 import { getSettings } from "@/lib/settings";
 import { ALLERGENS, allergenLabel, occasionLabel } from "@/lib/allergens";
 import { fromPrice, parseOptionGroups } from "@/lib/pricing";
-import { formatPrice, whatsappLink } from "@/lib/format";
+import { formatPrice, metaDescription, whatsappLink } from "@/lib/format";
 import { productSchema } from "@/lib/structured-data";
 import { siteUrl } from "@/lib/site-url";
 
@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: PageProps<"/producto/[slug]">
     title: product.seoTitle || `${product.name} · ${product.category.name} en ${business.city}`,
     description:
       product.seoDescription ||
-      `${product.shortDescription} Desde ${price}. Encarga online en ${business.name} (${business.city}) y recógelo en tienda.`.slice(0, 300),
+      metaDescription(`${product.shortDescription} Desde ${price}. Encarga online en ${business.name} (${business.city}) y recógelo en tienda.`),
     alternates: { canonical: `/producto/${product.slug}` },
     openGraph: {
       type: "website",
@@ -68,7 +68,7 @@ export default async function ProductPage({ params }: PageProps<"/producto/[slug
         ]}
       />
 
-      <div className="mt-6 grid gap-10 lg:grid-cols-2 lg:gap-14">
+      <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-14">
         {/* Galería */}
         <div className="space-y-3 lg:sticky lg:top-28 lg:self-start">
           <div className="relative aspect-square overflow-hidden rounded-sm border border-sand-300/60 bg-cream-200 shadow-soft">

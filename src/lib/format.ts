@@ -80,3 +80,15 @@ export function telLink(phone: string): string {
 export function pluralize(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;
 }
+
+/**
+ * Metadescripción para Google (≈155 caracteres): si el texto es más largo se corta en la última
+ * palabra completa y se añade «…», en vez de que el buscador lo corte a mitad de palabra.
+ */
+export function metaDescription(text: string, max = 158): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max - 1);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,.;:·-]+$/, "")}…`;
+}
