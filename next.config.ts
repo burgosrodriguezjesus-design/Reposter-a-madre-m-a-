@@ -39,6 +39,19 @@ const nextConfig: NextConfig = {
     serverActions: { bodySizeLimit: "12mb" },
     proxyClientMaxBodySize: "12mb",
   },
+  async rewrites() {
+    return {
+      // /productos sin filtros es la página de catálogo más visitada: se sirve su versión estática
+      // (caché/CDN) en lugar de generarla en cada visita. Con cualquier filtro sigue siendo dinámica.
+      beforeFiles: [
+        {
+          source: "/productos",
+          missing: ["categoria", "ocasion", "precio", "orden", "q"].map((key) => ({ type: "query" as const, key })),
+          destination: "/productos/catalogo",
+        },
+      ],
+    };
+  },
   async headers() {
     return [
       { source: "/(.*)", headers: securityHeaders },
