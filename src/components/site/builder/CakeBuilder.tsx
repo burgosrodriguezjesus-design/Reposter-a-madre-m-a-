@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Check, LoaderCircle, MessageSquareQuote, ShoppingBag } from "lucide-react";
 import clsx from "clsx";
 import type { BuilderOption, BuilderSettings } from "@/lib/settings-types";
@@ -78,6 +78,7 @@ export function CakeBuilder({ builder, quoteLeadHours, deliveryEnabled = false }
   const [desired, setDesired] = useState({ date: "", time: "" });
   const [privacy, setPrivacy] = useState(false);
   const [sending, setSending] = useState(false);
+  const inFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [quoteLink, setQuoteLink] = useState<string | null>(null);
 
@@ -118,6 +119,9 @@ export function CakeBuilder({ builder, quoteLeadHours, deliveryEnabled = false }
 
   async function sendQuote(e: React.FormEvent) {
     e.preventDefault();
+    // Bloqueo inmediato ante un doble clic (el botón tarda un instante en desactivarse)
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSending(true);
     setError(null);
     try {
@@ -141,6 +145,7 @@ export function CakeBuilder({ builder, quoteLeadHours, deliveryEnabled = false }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo enviar la solicitud");
     } finally {
+      inFlight.current = false;
       setSending(false);
     }
   }

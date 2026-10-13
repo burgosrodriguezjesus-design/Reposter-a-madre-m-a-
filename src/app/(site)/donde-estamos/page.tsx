@@ -36,7 +36,7 @@ export default async function LocationPage() {
       </header>
 
       <div className="mt-10">
-        <LocationBlock business={b} schedule={schedule} />
+        <LocationBlock business={b} schedule={schedule} headingLevel={2} />
       </div>
 
       <div className="mt-10 grid gap-6 lg:grid-cols-3">

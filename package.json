@@ -5,8 +5,8 @@
   "description": "Web de repostería artesanal con pedidos online, personalizador de tartas, panel de administración y SEO local.",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "build": "prisma generate && next build && node scripts/check-csp-routes.mjs",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build && node scripts/check-csp-routes.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

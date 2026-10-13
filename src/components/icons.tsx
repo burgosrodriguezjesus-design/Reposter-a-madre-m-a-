@@ -41,5 +41,6 @@ export function TikTokIcon({ className = "size-5" }: Props) {
 export function BrandMark({ className = "size-9" }: Props) {
   // Logotipo de la repostería (public/brand, generado con scripts/generate-brand.ts). Siempre va
   // junto al nombre en texto, así que es decorativo para lectores de pantalla.
-  return <Image src="/brand/logo-256.webp" alt="" width={256} height={256} className={`${className} shrink-0 rounded-full`} aria-hidden />;
+  // Se muestra como máximo a 96 px: con width 96 el navegador descarga 96 o 256 px (no 640)
+  return <Image src="/brand/logo-256.webp" alt="" width={96} height={96} className={`${className} shrink-0 rounded-full`} aria-hidden />;
 }

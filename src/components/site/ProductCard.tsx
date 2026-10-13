@@ -16,7 +16,9 @@ export function ProductBadges({ product }: { product: Pick<ProductCardData, "fea
   );
 }
 
-export function ProductCard({ product, priority = false }: { product: ProductCardData; priority?: boolean }) {
+/** headingLevel: 2 en listados que van directamente bajo el h1 (sin títulos de sección intermedios). */
+export function ProductCard({ product, priority = false, headingLevel = 3 }: { product: ProductCardData; priority?: boolean; headingLevel?: 2 | 3 }) {
+  const Title = headingLevel === 2 ? "h2" : "h3";
   const image = product.images[0];
   const servings = product.variants.find((v) => v.servings)?.servings;
   const multiple = product.variants.length > 1;
@@ -40,11 +42,11 @@ export function ProductCard({ product, priority = false }: { product: ProductCar
       </div>
       <div className="flex flex-1 flex-col p-4 sm:p-5">
         <p className="text-xs font-medium tracking-wide text-gold-700 uppercase">{product.category.name}</p>
-        <h3 className="mt-1 font-display text-lg leading-snug text-cocoa-900 sm:text-xl">
+        <Title className="mt-1 font-display text-lg leading-snug text-cocoa-900 sm:text-xl">
           <Link href={`/producto/${product.slug}`} className="after:absolute after:inset-0">
             {product.name}
           </Link>
-        </h3>
+        </Title>
         <p className="mt-1.5 line-clamp-2 text-sm text-cocoa-600">{product.shortDescription}</p>
         <div className="mt-auto flex items-end justify-between gap-2 pt-4">
           <div>

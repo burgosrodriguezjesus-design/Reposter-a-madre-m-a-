@@ -9,9 +9,9 @@ import "@/lib/taint";
 // Se descargan al compilar y se sirven desde el propio dominio (sin peticiones a Google al navegar)
 const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
 
+// Fuente variable (grosores 300-700 en un solo archivo por estilo): 2 descargas en vez de 8
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
   style: ["normal", "italic"],
   variable: "--font-cormorant",
   display: "swap",

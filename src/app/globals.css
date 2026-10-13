@@ -57,8 +57,10 @@
   --animate-float: float 6s ease-in-out infinite;
 
   @keyframes fade-up {
+    /* Sin empezar en opacidad 0: el navegador da el contenido por pintado desde el primer
+       fotograma y el texto principal no retrasa el LCP */
     from {
-      opacity: 0;
+      opacity: 0.35;
       transform: translateY(18px);
     }
     to {

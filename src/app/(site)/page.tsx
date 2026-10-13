@@ -42,6 +42,7 @@ export default async function HomePage() {
                 alt={heroAlt}
                 fill
                 preload
+                fetchPriority="high"
                 sizes="(min-width: 1024px) 600px, 92vw"
                 className={heroIsIllustration ? "object-contain" : "object-cover shadow-lift"}
               />

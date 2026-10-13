@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Gift, LoaderCircle } from "lucide-react";
 import clsx from "clsx";
 import { formatPrice } from "@/lib/format";
@@ -12,11 +12,15 @@ export function GiftCardForm({ amounts, payments, businessName }: { amounts: num
   const [paymentMethod, setPaymentMethod] = useState<"CARD" | "IN_STORE">(payments.card ? "CARD" : "IN_STORE");
   const [terms, setTerms] = useState(false);
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [reserved, setReserved] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Bloqueo inmediato ante un doble clic (el botón tarda un instante en desactivarse)
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -35,6 +39,7 @@ export function GiftCardForm({ amounts, payments, businessName }: { amounts: num
     } catch {
       setError("Error de conexión");
     }
+    inFlight.current = false;
     setBusy(false);
   }
 

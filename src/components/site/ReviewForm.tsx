@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LoaderCircle, Star } from "lucide-react";
 
 export function ReviewForm({ orderNumber }: { orderNumber?: string }) {
@@ -9,11 +9,15 @@ export function ReviewForm({ orderNumber }: { orderNumber?: string }) {
   const [form, setForm] = useState({ authorName: "", text: "", orderNumber: orderNumber ?? "", email: "" });
   const [privacy, setPrivacy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Bloqueo inmediato ante un doble clic (el botón tarda un instante en desactivarse)
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -28,6 +32,7 @@ export function ReviewForm({ orderNumber }: { orderNumber?: string }) {
     } catch {
       setError("Error de conexión");
     }
+    inFlight.current = false;
     setBusy(false);
   }
 

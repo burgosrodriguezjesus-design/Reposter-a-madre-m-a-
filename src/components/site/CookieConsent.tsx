@@ -96,7 +96,9 @@ export function CookieConsent({ gaId }: { gaId: string }) {
     return () => window.removeEventListener(OPEN_EVENT, open);
   }, []);
 
-  const visible = consent !== undefined && (consent === null || forceOpen);
+  // Sin analítica configurada la web solo usa almacenamiento técnico (carrito, seguridad), que no
+  // necesita consentimiento (art. 22.2 LSSI): el aviso no se muestra solo, sí desde «Configurar cookies».
+  const visible = consent !== undefined && ((consent === null && !!gaId) || forceOpen);
   const decide = (value: boolean) => {
     save(value);
     setForceOpen(false);
@@ -122,8 +124,10 @@ export function CookieConsent({ gaId }: { gaId: string }) {
         >
           <p className="font-display text-lg text-cocoa-900">Un momento dulce para tu privacidad 🍪</p>
           <p className="mt-2 text-sm leading-relaxed text-cocoa-600">
-            Usamos cookies técnicas necesarias para el carrito y, solo si nos das permiso, cookies de analítica para
-            entender cómo se usa la web y mejorarla. Más información en nuestra{" "}
+            {gaId
+              ? "Usamos cookies técnicas necesarias para el carrito y, solo si nos das permiso, cookies de analítica para entender cómo se usa la web y mejorarla."
+              : "Solo usamos almacenamiento técnico necesario para el carrito y la seguridad. No usamos cookies de analítica ni de publicidad."}{" "}
+            Más información en nuestra{" "}
             <Link href="/cookies" className="font-medium text-blush-700 underline">
               política de cookies
             </Link>
@@ -137,22 +141,28 @@ export function CookieConsent({ gaId }: { gaId: string }) {
                   <strong>Técnicas (siempre activas).</strong> Carrito, preferencias y seguridad.
                 </span>
               </label>
-              <label className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={analytics}
-                  onChange={(e) => setAnalytics(e.target.checked)}
-                  className="mt-1 size-4 accent-blush-600"
-                />
-                <span>
-                  <strong>Analítica (Google Analytics 4).</strong> Estadísticas de visitas con identificadores
-                  seudónimos (cookies _ga). Google puede tratar estos datos fuera de la UE.
-                </span>
-              </label>
+              {gaId && (
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={analytics}
+                    onChange={(e) => setAnalytics(e.target.checked)}
+                    className="mt-1 size-4 accent-blush-600"
+                  />
+                  <span>
+                    <strong>Analítica (Google Analytics 4).</strong> Estadísticas de visitas con identificadores
+                    seudónimos (cookies _ga). Google puede tratar estos datos fuera de la UE.
+                  </span>
+                </label>
+              )}
             </div>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
-            {configuring ? (
+            {!gaId ? (
+              <button type="button" className="btn-primary btn-sm" onClick={() => decide(false)}>
+                Entendido
+              </button>
+            ) : configuring ? (
               <button type="button" className="btn-primary btn-sm" onClick={() => decide(analytics)}>
                 Guardar preferencias
               </button>
