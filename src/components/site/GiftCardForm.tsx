@@ -129,7 +129,7 @@ export function GiftCardForm({ amounts, payments, businessName }: { amounts: num
       </div>
 
       <aside className="lg:sticky lg:top-28 lg:self-start">
-        <div className="relative overflow-hidden rounded-[2rem] border border-gold-400 bg-gradient-to-br from-blush-200 via-cream-50 to-gold-200 p-8 shadow-lift">
+        <div className="relative overflow-hidden rounded-sm border border-gold-400 bg-gradient-to-br from-blush-200 via-cream-50 to-gold-200 p-8 shadow-lift">
           <div className="absolute -top-10 -right-10 size-40 rounded-full bg-white/40" aria-hidden />
           <p className="text-xs font-semibold tracking-[0.25em] text-gold-700 uppercase">Tarjeta regalo</p>
           <p className="mt-2 font-display text-2xl italic text-cocoa-900">{businessName}</p>

@@ -42,7 +42,7 @@ export function CartView() {
 
   if (lines.length === 0) {
     return (
-      <div className="mt-10 rounded-[2rem] border border-dashed border-sand-400 bg-white/60 px-6 py-16 text-center">
+      <div className="mt-10 rounded-sm border border-dashed border-sand-400 bg-white/60 px-6 py-16 text-center">
         <ShoppingBag className="mx-auto size-12 text-blush-400" strokeWidth={1.4} />
         <p className="mt-4 font-display text-2xl text-cocoa-900">Tu carrito está vacío</p>
         <p className="mt-2 text-cocoa-600">Descubre nuestras tartas y dulces o diseña la tuya.</p>

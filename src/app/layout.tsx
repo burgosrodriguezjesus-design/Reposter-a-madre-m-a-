@@ -1,18 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Playfair_Display } from "next/font/google";
+import { Cormorant_Garamond, Great_Vibes, Montserrat } from "next/font/google";
 import { getSettings } from "@/lib/settings";
 import { siteUrl } from "@/lib/site-url";
 import "./globals.css";
 import "@/lib/taint";
 
-const playfair = Playfair_Display({
+// Se descargan al compilar y se sirven desde el propio dominio (sin peticiones a Google al navegar)
+const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
+
+const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   style: ["normal", "italic"],
-  variable: "--font-playfair",
+  variable: "--font-cormorant",
   display: "swap",
 });
 
-const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap" });
+const greatVibes = Great_Vibes({ subsets: ["latin"], weight: "400", variable: "--font-great-vibes", display: "swap" });
 
 export async function generateMetadata(): Promise<Metadata> {
   const { business, seo } = await getSettings();
@@ -35,14 +39,14 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#FBF7F2",
+  themeColor: "#EEECE8",
   width: "device-width",
   initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${playfair.variable} ${dmSans.variable}`} data-scroll-behavior="smooth">
+    <html lang="es" className={`${montserrat.variable} ${cormorant.variable} ${greatVibes.variable}`} data-scroll-behavior="smooth">
       <body className="min-h-dvh">{children}</body>
     </html>
   );

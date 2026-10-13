@@ -71,7 +71,7 @@ export default async function ProductPage({ params }: PageProps<"/producto/[slug
       <div className="mt-6 grid gap-10 lg:grid-cols-2 lg:gap-14">
         {/* Galería */}
         <div className="space-y-3 lg:sticky lg:top-28 lg:self-start">
-          <div className="relative aspect-square overflow-hidden rounded-[2rem] border border-sand-300/60 bg-cream-200 shadow-soft">
+          <div className="relative aspect-square overflow-hidden rounded-sm border border-sand-300/60 bg-cream-200 shadow-soft">
             {mainImage && (
               <SmartImage src={mainImage.url} alt={mainImage.alt} fill preload sizes="(min-width: 1024px) 600px, 92vw" className="object-cover" />
             )}
@@ -93,7 +93,7 @@ export default async function ProductPage({ params }: PageProps<"/producto/[slug
 
         {/* Información y compra */}
         <div>
-          <p className="eyebrow">{product.category.name}</p>
+          <p className="kicker">{product.category.name}</p>
           <h1 className="mt-2 font-display text-4xl leading-tight text-cocoa-900 sm:text-5xl">{product.name}</h1>
           <p className="mt-3 text-lg text-cocoa-600">{product.shortDescription}</p>
           <p className="mt-4 text-2xl font-semibold text-cocoa-900">

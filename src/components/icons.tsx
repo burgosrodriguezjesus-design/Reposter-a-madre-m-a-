@@ -37,14 +37,16 @@ export function TikTokIcon({ className = "size-5" }: Props) {
 
 /** Marca: pequeña tarta con guinda en trazo dorado. */
 export function BrandMark({ className = "size-9" }: Props) {
+  // Porción de tarta de línea fina en negro con una guinda dorada
   return (
-    <svg viewBox="0 0 48 48" aria-hidden="true" className={className}>
-      <circle cx="24" cy="24" r="23" fill="#F6D9DE" />
-      <path d="M12 33h24v-8a3 3 0 0 0-3-3H15a3 3 0 0 0-3 3z" fill="#fff" stroke="#A84D60" strokeWidth="1.6" />
-      <path d="M12 27c2 0 2 2.2 4 2.2s2-2.2 4-2.2 2 2.2 4 2.2 2-2.2 4-2.2 2 2.2 4 2.2 2-2.2 4-2.2" fill="none" stroke="#C29A4A" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M10 34.5h28" stroke="#A84D60" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M24 22v-4" stroke="#7A5E26" strokeWidth="1.4" />
-      <circle cx="24" cy="15.5" r="3" fill="#A84D60" />
+    <svg viewBox="0 0 48 48" aria-hidden="true" className={className} fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 36 39 25v11z" stroke="#111110" strokeWidth="1.6" />
+      <path d="M7 36 39 25" stroke="#111110" strokeWidth="1.6" />
+      <path d="M7 36c4-1 6 1.6 9 .3s5-3 8.5-3.6 6.5-.6 8.5-2.2 4.5-2.9 6-3" stroke="#111110" strokeWidth="1.1" opacity=".55" />
+      <path d="M12 36v0M20 36v0M28 36v0M35 36v0" stroke="#111110" strokeWidth="1" opacity=".35" />
+      <path d="M7 36c2.5-3.2 7.5-6.5 13-8.7S32 23.6 39 25" stroke="#111110" strokeWidth="1.6" />
+      <path d="M26 21.5c.7-3 2.8-5.5 5.5-6.8" stroke="#7a6139" strokeWidth="1.2" />
+      <circle cx="25.6" cy="23.6" r="2.6" fill="#b8955b" />
     </svg>
   );
 }

@@ -21,7 +21,7 @@ export function MapEmbed({ src, title }: { src: string; title: string }) {
           allowFullScreen
         />
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[radial-gradient(circle_at_30%_30%,#F6D9DE,transparent_55%),radial-gradient(circle_at_70%_70%,#F1E4C3,transparent_50%)] p-6 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[radial-gradient(circle_at_30%_30%,#E5E2DD,transparent_55%),radial-gradient(circle_at_70%_70%,#EFE5D1,transparent_50%)] p-6 text-center">
           <span className="inline-flex size-14 items-center justify-center rounded-full bg-white shadow-soft">
             <MapPin className="size-7 text-blush-600" />
           </span>

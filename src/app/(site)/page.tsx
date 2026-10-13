@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, ChefHat, Leaf, Palette, ShieldCheck, Sparkles, Truck } from "lucide-react";
+import { ArrowRight, CalendarCheck, ChefHat, Leaf, ShieldCheck, Sparkles, Truck } from "lucide-react";
 import { ProductCard } from "@/components/site/ProductCard";
 import { ReviewCard } from "@/components/site/ReviewCard";
 import { LocationBlock } from "@/components/site/LocationBlock";
@@ -22,69 +22,64 @@ export default async function HomePage() {
     getOpeningSchedule(),
   ]);
   const b = settings.business;
-  const heroSrc = b.heroImageUrl || "/demo/hero-tarta.svg";
-  const heroAlt = b.heroImageAlt || "Tarta artesanal rosa con goteo dorado, macarons, flores y fresas";
+  const heroSrc = b.heroImageUrl || "/demo/hero-tarta-zanahoria.svg";
+  const heroAlt = b.heroImageAlt || "Tarta de zanahoria con cobertura de queso vista desde arriba, con una porción servida";
+  const heroIsIllustration = heroSrc.endsWith(".svg");
 
   return (
     <>
       {/* ───────── Portada ───────── */}
       <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -top-40 -right-40 size-[520px] rounded-full bg-blush-200/50 blur-3xl" aria-hidden />
-        <div className="pointer-events-none absolute -bottom-40 -left-32 size-[420px] rounded-full bg-gold-200/50 blur-3xl" aria-hidden />
-        <div className="container-page relative grid items-center gap-10 py-10 sm:py-14 lg:grid-cols-[1.05fr_1fr] lg:py-20">
-          <div className="animate-fade-up">
+        {/* Ramas secas decorativas (ilustración propia, sin peticiones externas) */}
+        <SmartImage src="/decor/ramas-esquina.svg" alt="" aria-hidden width={520} height={520} className="pointer-events-none absolute -top-10 -left-16 w-[300px] opacity-90 select-none sm:w-[380px] lg:w-[460px]" />
+        <SmartImage src="/decor/ramas-lateral.svg" alt="" aria-hidden width={260} height={300} className="pointer-events-none absolute top-1/3 right-0 hidden w-[170px] opacity-80 select-none lg:block" />
+        <div className="container-page relative grid items-center gap-6 pt-6 pb-14 sm:pb-16 lg:min-h-[640px] lg:grid-cols-[1.08fr_1fr] lg:gap-10 lg:py-10">
+          <div className="relative mx-auto w-full max-w-[300px] sm:max-w-[460px] lg:-ml-6 lg:max-w-[600px]">
+            <div className="relative aspect-square">
+              <SmartImage
+                src={heroSrc}
+                alt={heroAlt}
+                fill
+                preload
+                sizes="(min-width: 1024px) 600px, 92vw"
+                className={heroIsIllustration ? "object-contain" : "object-cover shadow-lift"}
+              />
+            </div>
+          </div>
+          <div className="animate-fade-up text-center lg:pr-8">
             <h1>
-              <span className="eyebrow mb-4 block font-sans">
-                {b.name} · {b.city}
-              </span>
-              <span className="block font-display text-[2.6rem] leading-[1.05] text-cocoa-900 sm:text-6xl lg:text-[4.2rem]">
-                {b.tagline}
+              <span className="mx-auto block max-w-md font-script text-[2.1rem] leading-[1.15] font-normal text-balance text-gold-600 sm:text-[2.5rem]">{b.tagline}</span>
+              <span className="mt-3 block font-sans text-[2rem] leading-[1.15] font-semibold tracking-[0.16em] text-cocoa-900 uppercase sm:text-5xl lg:text-[3.3rem]">
+                {b.name}
               </span>
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-relaxed text-cocoa-600">
-              Tartas personalizadas, tartas de cumpleaños, cupcakes y postres elaborados a mano cada día en nuestro obrador
+            <div className="divider-dot my-7" aria-hidden />
+            <p className="lead-serif mx-auto max-w-lg">
+              Tartas personalizadas, de cumpleaños, cupcakes y postres elaborados a mano cada día en nuestro obrador
               {b.neighborhood ? ` de ${b.neighborhood}` : ""}. Encarga online y recoge en tienda o recíbelo en casa.
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <Link href="/productos" className="btn-primary px-8 text-base">
-                Hacer pedido <ArrowRight className="size-4" />
+            <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <Link href="/productos" className="btn-primary w-full sm:w-auto">
+                Hacer pedido
               </Link>
-              <Link href="/personalizar-tarta" className="btn-dark px-7 text-base">
-                <Palette className="size-4" /> Personalizar tarta
-              </Link>
-              <Link href="/productos" className="btn-outline px-7 text-base">
-                Ver productos
+              <Link href="/personalizar-tarta" className="btn-outline w-full sm:w-auto">
+                Personalizar tarta
               </Link>
             </div>
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-cocoa-600">
+            <div className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-[10.5px] font-semibold tracking-[0.2em] text-cocoa-600 uppercase">
               {stats.count > 0 && (
                 <span className="flex items-center gap-2">
                   <Stars rating={stats.average} />
                   <span>
-                    <strong className="text-cocoa-900">{stats.average.toFixed(1)}</strong> · {stats.count} opiniones
+                    {stats.average.toFixed(1)} · {stats.count} {stats.count === 1 ? "opinión" : "opiniones"}
                   </span>
                 </span>
               )}
               <span className="flex items-center gap-2">
-                <ChefHat className="size-4 text-gold-600" /> Elaboración diaria
+                <CalendarCheck className="size-3.5 text-gold-600" /> Reserva desde {settings.ordering.minLeadHours} h
               </span>
               <span className="flex items-center gap-2">
-                <Truck className="size-4 text-gold-600" /> Recogida o envío
-              </span>
-            </div>
-          </div>
-          <div className="relative mx-auto w-full max-w-[560px]">
-            <div className="absolute inset-6 rotate-3 rounded-[2.5rem] bg-blush-200/70" aria-hidden />
-            <div className="relative aspect-square overflow-hidden rounded-[2.5rem] border-4 border-white shadow-lift">
-              <SmartImage src={heroSrc} alt={heroAlt} fill preload sizes="(min-width: 1024px) 560px, 92vw" className="object-cover" />
-            </div>
-            <div className="absolute -bottom-4 left-4 flex items-center gap-3 rounded-2xl bg-white/95 px-4 py-3 shadow-lift sm:-left-6">
-              <span className="inline-flex size-10 items-center justify-center rounded-full bg-gold-200 text-gold-700">
-                <CalendarCheck className="size-5" />
-              </span>
-              <span className="text-sm leading-tight">
-                <strong className="block text-cocoa-900">Reserva día y hora</strong>
-                <span className="text-cocoa-500">desde {settings.ordering.minLeadHours} h de antelación</span>
+                <Truck className="size-3.5 text-gold-600" /> Recogida o envío
               </span>
             </div>
           </div>
@@ -92,7 +87,7 @@ export default async function HomePage() {
       </section>
 
       {/* ───────── Ventajas ───────── */}
-      <section aria-label="Por qué elegirnos" className="border-y border-sand-300/50 bg-white/60">
+      <section aria-label="Por qué elegirnos" className="border-y border-cocoa-900/[0.06] bg-cream-50">
         <div className="container-page grid grid-cols-2 gap-6 py-8 lg:grid-cols-4">
           {[
             { icon: ChefHat, title: "Hecho a mano", text: "Cada día en nuestro obrador" },
@@ -101,12 +96,12 @@ export default async function HomePage() {
             { icon: ShieldCheck, title: "Pago seguro", text: "Online o al recoger en tienda" },
           ].map((item) => (
             <div key={item.title} className="flex items-start gap-3">
-              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-2xl bg-blush-100 text-blush-700">
-                <item.icon className="size-5" />
+              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-gold-400/70 text-gold-600">
+                <item.icon className="size-[18px]" strokeWidth={1.5} />
               </span>
               <span>
-                <strong className="block text-[15px] text-cocoa-900">{item.title}</strong>
-                <span className="text-sm text-cocoa-600">{item.text}</span>
+                <strong className="block text-[11px] font-semibold tracking-[0.2em] text-cocoa-900 uppercase">{item.title}</strong>
+                <span className="font-display text-[15px] text-cocoa-600 italic">{item.text}</span>
               </span>
             </div>
           ))}
@@ -163,7 +158,7 @@ export default async function HomePage() {
       {/* ───────── Personalizador ───────── */}
       {settings.builder.enabled && (
         <section className="container-page py-20">
-          <div className="reveal relative overflow-hidden rounded-[2.5rem] bg-cocoa-800 px-6 py-12 text-cream-50 sm:px-12 lg:grid lg:grid-cols-[1.2fr_1fr] lg:items-center lg:gap-10 lg:py-16">
+          <div className="reveal relative overflow-hidden rounded-sm bg-cocoa-800 px-6 py-12 text-cream-50 sm:px-12 lg:grid lg:grid-cols-[1.2fr_1fr] lg:items-center lg:gap-10 lg:py-16">
             <div className="pointer-events-none absolute -top-24 -right-24 size-80 rounded-full bg-blush-500/30 blur-3xl" aria-hidden />
             <div className="relative">
               <p className="eyebrow mb-3 text-gold-300">Personalizador de tartas</p>
@@ -240,7 +235,7 @@ export default async function HomePage() {
       {/* ───────── Elaboración artesanal ───────── */}
       <section className="container-page py-20">
         <div className="grid items-center gap-12 lg:grid-cols-2">
-          <div className="reveal relative aspect-[3/2] overflow-hidden rounded-[2.5rem] border-4 border-white shadow-lift">
+          <div className="reveal relative aspect-[3/2] overflow-hidden rounded-sm border-4 border-white shadow-lift">
             <SmartImage
               src={b.storePhotos[0]?.url || "/demo/obrador.svg"}
               alt={b.storePhotos[0]?.alt || `Fachada y escaparate de ${b.name}`}
@@ -312,7 +307,7 @@ export default async function HomePage() {
 
       {/* ───────── Llamada final ───────── */}
       <section className="container-page">
-        <div className="reveal rounded-[2.5rem] bg-gradient-to-br from-blush-200 via-blush-100 to-gold-200 px-6 py-14 text-center sm:px-12">
+        <div className="reveal rounded-sm bg-gradient-to-br from-blush-200 via-blush-100 to-gold-200 px-6 py-14 text-center sm:px-12">
           <h2 className="section-title">¿Tienes algo que celebrar?</h2>
           <p className="mx-auto mt-3 max-w-xl text-cocoa-700">
             Reserva hoy tu tarta y olvídate de preocupaciones. Te confirmamos el pedido por email y puedes seguirlo en todo momento.
@@ -321,7 +316,7 @@ export default async function HomePage() {
             <Link href="/productos" className="btn-primary px-8">
               Hacer pedido
             </Link>
-            <Link href="/personalizar-tarta" className="btn-dark">
+            <Link href="/personalizar-tarta" className="btn-outline">
               Personalizar tarta
             </Link>
           </div>

@@ -68,7 +68,7 @@ export function SectionHeading({
       <Tag className={Tag === "h1" ? "font-display text-4xl leading-tight text-cocoa-900 sm:text-5xl" : "section-title"}>
         {title}
       </Tag>
-      <div className={clsx("gold-rule my-5", align === "center" && "mx-auto")} />
+      <div className={clsx("divider-dot my-6", align === "left" && "mx-0")} aria-hidden />
       {text && <p className="text-[16px] leading-relaxed text-cocoa-600">{text}</p>}
     </div>
   );

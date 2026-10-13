@@ -1,44 +1,55 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-playfair), Georgia, "Times New Roman", serif;
+  /* Estética: fondo crema grisáceo, negro tinta y oro viejo (estilo «Delight») */
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cormorant), Georgia, "Times New Roman", serif;
+  --font-script: var(--font-great-vibes), "Brush Script MT", cursive;
 
-  --color-cream-50: #fffdf9;
-  --color-cream-100: #fbf7f2;
-  --color-cream-200: #f5ede3;
-  --color-cream-300: #efe4d6;
+  --color-cream-50: #f8f7f5;
+  --color-cream-100: #eeece8;
+  --color-cream-200: #e5e2dd;
+  --color-cream-300: #dad6cf;
 
-  --color-sand-300: #e3d3bf;
-  --color-sand-400: #cdb79c;
-  --color-sand-500: #b39a7c;
+  --color-sand-300: #d9d3c9;
+  --color-sand-400: #c4bbad;
+  --color-sand-500: #a89d8c;
 
-  --color-blush-50: #fdf6f7;
-  --color-blush-100: #fbeef0;
-  --color-blush-200: #f6d9de;
-  --color-blush-300: #edbcc5;
-  --color-blush-400: #dc97a4;
-  --color-blush-500: #c46f81;
-  --color-blush-600: #a84d60;
-  --color-blush-700: #8a3b4d;
-  --color-blush-800: #6e2e3d;
+  /* «blush» era el acento rosa: ahora champán/oro suave para toda la web y el panel */
+  --color-blush-50: #faf8f4;
+  --color-blush-100: #f3eee5;
+  --color-blush-200: #e7dcc9;
+  --color-blush-300: #d6c3a3;
+  --color-blush-400: #c2a67a;
+  --color-blush-500: #a98a5a;
+  --color-blush-600: #8c7147;
+  --color-blush-700: #6f5937;
+  --color-blush-800: #54432a;
 
-  --color-gold-200: #f1e4c3;
-  --color-gold-300: #e6cf9b;
-  --color-gold-400: #d4b26a;
-  --color-gold-500: #c29a4a;
-  --color-gold-600: #9c7a35;
-  --color-gold-700: #7a5e26;
+  --color-gold-200: #efe5d1;
+  --color-gold-300: #e0cda8;
+  --color-gold-400: #ccb07c;
+  --color-gold-500: #b8955b;
+  --color-gold-600: #997a48;
+  --color-gold-700: #7a6139;
 
-  --color-cocoa-400: #9a857a;
-  --color-cocoa-500: #7a6458;
-  --color-cocoa-600: #634e43;
-  --color-cocoa-700: #4e3b31;
-  --color-cocoa-800: #3b2a22;
-  --color-cocoa-900: #2e211b;
+  /* «cocoa» (texto) pasa a negro tinta y grises cálidos */
+  --color-cocoa-400: #8f8b86;
+  --color-cocoa-500: #6f6b66;
+  --color-cocoa-600: #55524e;
+  --color-cocoa-700: #3d3b38;
+  --color-cocoa-800: #1f1e1c;
+  --color-cocoa-900: #111110;
 
-  --shadow-soft: 0 1px 2px rgb(59 42 34 / 0.04), 0 8px 24px -8px rgb(59 42 34 / 0.12);
-  --shadow-lift: 0 2px 4px rgb(59 42 34 / 0.05), 0 18px 40px -12px rgb(59 42 34 / 0.22);
+  /* Esquinas casi rectas: estética sobria (los círculos y píldoras siguen con rounded-full) */
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.25rem;
+  --radius-2xl: 0.3rem;
+  --radius-3xl: 0.375rem;
+  --radius-4xl: 0.5rem;
+
+  --shadow-soft: 0 1px 2px rgb(17 17 16 / 0.04), 0 10px 30px -12px rgb(17 17 16 / 0.14);
+  --shadow-lift: 0 2px 4px rgb(17 17 16 / 0.05), 0 24px 48px -16px rgb(17 17 16 / 0.25);
 
   --animate-fade-up: fade-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-float: float 6s ease-in-out infinite;
@@ -70,22 +81,20 @@
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-cream-100 text-cocoa-800 font-sans antialiased;
-    font-feature-settings: "ss01";
+    @apply bg-cream-100 text-cocoa-700 font-sans antialiased;
   }
   h1,
   h2,
   h3,
   .font-display {
-    @apply font-display;
-    letter-spacing: -0.01em;
+    @apply font-display font-medium;
     font-variant-numeric: lining-nums;
   }
   ::selection {
-    @apply bg-blush-200 text-cocoa-900;
+    @apply bg-gold-200 text-cocoa-900;
   }
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-blush-600;
+    @apply outline-2 outline-offset-2 outline-gold-600;
   }
   [hidden] {
     display: none !important;
@@ -96,54 +105,73 @@
   .container-page {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
   }
+  /* Antetítulo manuscrito en oro (≥ 24 px: contraste suficiente para texto grande) */
   .eyebrow {
-    @apply text-xs font-semibold tracking-[0.2em] text-gold-700 uppercase;
+    @apply font-script text-3xl leading-none font-normal tracking-normal text-gold-600 normal-case sm:text-[2.1rem];
+  }
+  /* Etiqueta pequeña en mayúsculas espaciadas */
+  .kicker {
+    @apply font-sans text-[11px] font-semibold tracking-[0.28em] text-gold-700 uppercase;
+  }
+  /* Títulos en mayúsculas muy espaciadas (como «DELIGHT») */
+  .title-caps {
+    @apply font-sans font-semibold tracking-[0.18em] text-cocoa-900 uppercase;
   }
   .section-title {
-    @apply font-display text-3xl leading-tight text-cocoa-900 sm:text-4xl;
+    @apply font-sans text-2xl leading-snug font-semibold tracking-[0.18em] text-cocoa-900 uppercase sm:text-3xl;
+  }
+  /* Texto de presentación en serif cursiva */
+  .lead-serif {
+    @apply font-display text-lg leading-relaxed text-cocoa-600 italic sm:text-xl;
+  }
+  /* Separador fino dorado con un punto central */
+  .divider-dot {
+    @apply relative mx-auto h-px w-28 bg-gold-400/70;
+  }
+  .divider-dot::after {
+    content: "";
+    @apply absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-gold-500;
   }
   .btn,
   .btn-primary,
   .btn-dark,
   .btn-outline,
   .btn-ghost {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-6 py-2.5 text-[15px] font-semibold transition duration-200 select-none disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-none px-7 py-2.5 text-[11.5px] font-semibold tracking-[0.2em] whitespace-nowrap uppercase transition duration-200 select-none disabled:cursor-not-allowed disabled:opacity-60;
   }
-  .btn-primary {
-    @apply bg-blush-600 text-white shadow-soft hover:-translate-y-0.5 hover:bg-blush-700 hover:shadow-lift active:translate-y-0;
-  }
+  .btn-primary,
   .btn-dark {
-    @apply bg-cocoa-800 text-cream-50 hover:-translate-y-0.5 hover:bg-cocoa-900 hover:shadow-lift;
+    @apply border border-cocoa-900 bg-cocoa-900 text-cream-50 hover:border-gold-600 hover:bg-gold-600 active:translate-y-px;
   }
   .btn-outline {
-    @apply border border-cocoa-800/20 bg-white/70 text-cocoa-800 backdrop-blur hover:border-cocoa-800/40 hover:bg-white;
+    @apply border border-gold-400 bg-transparent text-gold-700 hover:border-cocoa-900 hover:bg-cocoa-900 hover:text-cream-50;
   }
   .btn-ghost {
     @apply px-4 text-cocoa-700 hover:bg-cream-200;
   }
   .btn-sm {
-    @apply min-h-9 px-4 py-1.5 text-sm;
+    @apply min-h-9 px-4 py-1.5 text-[10.5px];
   }
   .card {
-    @apply rounded-3xl border border-sand-300/60 bg-white shadow-soft;
+    @apply rounded-sm border border-sand-300/70 bg-cream-50 shadow-soft;
   }
   .label {
     @apply mb-1.5 block text-sm font-semibold text-cocoa-700;
   }
   .input {
-    @apply block w-full rounded-xl border border-sand-300 bg-white px-4 py-2.5 text-[15px] text-cocoa-900 placeholder:text-cocoa-400 transition focus:border-blush-500 focus:ring-4 focus:ring-blush-200 focus:outline-none disabled:bg-cream-200;
+    @apply block w-full rounded-sm border border-sand-300 bg-white px-4 py-2.5 text-[15px] text-cocoa-900 placeholder:text-cocoa-400 transition focus:border-gold-500 focus:ring-4 focus:ring-gold-200 focus:outline-none disabled:bg-cream-200;
   }
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-sand-300 bg-white px-3.5 py-1.5 text-sm text-cocoa-700 transition hover:border-blush-400;
+    @apply inline-flex items-center gap-1.5 rounded-none border border-sand-300 bg-cream-50 px-3.5 py-1.5 text-[11px] font-medium tracking-[0.14em] text-cocoa-700 uppercase transition hover:border-gold-500;
   }
   .chip-active {
-    @apply border-blush-600 bg-blush-600 text-white hover:border-blush-600;
+    @apply border-cocoa-900 bg-cocoa-900 text-cream-50 hover:border-cocoa-900;
   }
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
   }
   .prose-content {
-    @apply space-y-4 text-[15.5px] leading-relaxed text-cocoa-700;
+    @apply space-y-4 text-[15px] leading-relaxed text-cocoa-700;
   }
   .prose-content h2 {
     @apply pt-4 text-2xl text-cocoa-900;
@@ -159,6 +187,16 @@
   }
   .gold-rule {
     @apply h-px w-16 bg-gradient-to-r from-transparent via-gold-400 to-transparent;
+  }
+  .nav-link {
+    @apply relative px-1 py-2 text-[11px] font-semibold tracking-[0.2em] whitespace-nowrap text-cocoa-800 uppercase transition hover:text-gold-600;
+  }
+  .nav-link[aria-current="page"] {
+    @apply text-gold-600;
+  }
+  .nav-link[aria-current="page"]::after {
+    content: "";
+    @apply absolute inset-x-1 -bottom-0.5 h-px bg-gold-500;
   }
 }
 

@@ -20,7 +20,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
         Saltar al contenido
       </a>
       {demo && marketing.showDemoBanner && (
-        <div className="bg-cocoa-800 px-4 py-2 text-center text-xs text-cream-100">
+        <div className="bg-cocoa-900 px-4 py-2 text-center text-xs text-cream-100">
           <strong className="text-gold-300">Modo demostración:</strong> los productos, precios y opiniones marcados
           como «Demo» son de ejemplo. Sustitúyelos desde el{" "}
           <Link href="/admin" className="underline">
@@ -30,7 +30,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
         </div>
       )}
       {marketing.announcement && (
-        <div className="bg-blush-100 px-4 py-2 text-center text-[13px] font-medium text-blush-800">{marketing.announcement}</div>
+        <div className="border-b border-cocoa-900/[0.06] bg-cream-50 px-4 py-2 text-center text-[10.5px] font-medium tracking-[0.2em] text-gold-700 uppercase">{marketing.announcement}</div>
       )}
       <Header />
       <main id="contenido">{children}</main>

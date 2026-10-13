@@ -48,7 +48,7 @@ export async function Footer() {
         </div>
 
         <div>
-          <h2 className="eyebrow mb-4 font-sans">Visítanos</h2>
+          <h2 className="kicker mb-4">Visítanos</h2>
           <address className="space-y-3 text-sm not-italic text-cocoa-700">
             <p className="flex gap-2.5">
               <MapPin className="mt-0.5 size-4 shrink-0 text-gold-600" />
@@ -77,7 +77,7 @@ export async function Footer() {
         </div>
 
         <div>
-          <h2 className="eyebrow mb-4 font-sans">Productos</h2>
+          <h2 className="kicker mb-4">Productos</h2>
           <ul className="space-y-2 text-sm text-cocoa-700">
             {categories.map((c) => (
               <li key={c.id}>
@@ -100,7 +100,7 @@ export async function Footer() {
         </div>
 
         <div>
-          <h2 className="eyebrow mb-4 font-sans">En {b.city}</h2>
+          <h2 className="kicker mb-4">En {b.city}</h2>
           <ul className="space-y-2 text-sm text-cocoa-700">
             {landings.map((l) => (
               <li key={l.slug}>

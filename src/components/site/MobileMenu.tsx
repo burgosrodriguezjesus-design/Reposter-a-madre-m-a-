@@ -31,7 +31,7 @@ export function MobileMenu({ links, categories, phone }: { links: LinkItem[]; ca
   }, [open]);
 
   return (
-    <div className="lg:hidden">
+    <div className="xl:hidden">
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -47,7 +47,7 @@ export function MobileMenu({ links, categories, phone }: { links: LinkItem[]; ca
           <div className="absolute inset-0 bg-cocoa-900/40" onClick={() => setOpen(false)} />
           <div className="absolute inset-y-0 right-0 flex w-[88%] max-w-sm flex-col overflow-y-auto bg-cream-50 p-6 shadow-lift animate-fade-up">
             <div className="mb-6 flex items-center justify-between">
-              <span className="eyebrow">Menú</span>
+              <span className="kicker">Menú</span>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -59,13 +59,13 @@ export function MobileMenu({ links, categories, phone }: { links: LinkItem[]; ca
             </div>
             <nav aria-label="Menú móvil" className="space-y-1">
               {links.map((l) => (
-                <Link key={l.href} href={l.href} className="block rounded-xl px-3 py-3 font-display text-xl text-cocoa-900 hover:bg-cream-200">
+                <Link key={l.href} href={l.href} className="block border-b border-sand-300/60 px-1 py-3.5 text-[12px] font-semibold tracking-[0.22em] text-cocoa-900 uppercase hover:text-gold-600">
                   {l.label}
                 </Link>
               ))}
             </nav>
             <div className="mt-6 border-t border-sand-300 pt-5">
-              <p className="eyebrow mb-3">Categorías</p>
+              <p className="kicker mb-3">Categorías</p>
               <div className="flex flex-wrap gap-2">
                 {categories.map((c) => (
                   <Link key={c.href} href={c.href} className="chip">
