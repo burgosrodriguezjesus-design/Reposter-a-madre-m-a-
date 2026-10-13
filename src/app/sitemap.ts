@@ -36,7 +36,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
       images: p.images.map((i) => absolute(i.url)),
     })),
-    ...zones
+    ...(settings.ordering.deliveryEnabled ? zones : [])
       .filter((z) => z.description.trim().length >= MIN_ZONE_TEXT)
       .map((z) => ({ url: siteUrl(`/zonas/${z.slug}`), changeFrequency: "monthly" as const, priority: 0.6 })),
     ...["aviso-legal", "privacidad", "cookies", "condiciones-de-compra", "cancelaciones", "alergenos"].map((p) => ({

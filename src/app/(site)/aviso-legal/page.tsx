@@ -17,13 +17,13 @@ export default async function LegalNoticePage() {
       </p>
       <ul>
         <li>Titular: {b.legalName}</li>
-        <li>NIF/CIF: {b.taxId}</li>
+        {b.taxId && <li>NIF/CIF: {b.taxId}</li>}
         <li>Nombre comercial: {b.name}</li>
         <li>Domicilio: {fullAddress(b)}</li>
         <li>Teléfono: {b.phone}</li>
         <li>Email: {b.email}</li>
         {b.registryInfo && <li>Datos registrales: {b.registryInfo}</li>}
-        <li>Registro sanitario: {b.sanitaryRegistry}</li>
+        {b.sanitaryRegistry && <li>Registro sanitario: {b.sanitaryRegistry}</li>}
       </ul>
       <h2>Objeto y condiciones de uso</h2>
       <p>

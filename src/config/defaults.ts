@@ -3,7 +3,7 @@
  * ║  VALORES INICIALES DEL NEGOCIO                                     ║
  * ║  Se cargan en la base de datos con `npm run db:seed` y después se  ║
  * ║  editan cómodamente desde el panel: /admin/ajustes                 ║
- * ║  Teléfono, email y datos fiscales son de EJEMPLO: sustitúyelos.    ║
+ * ║  El email y la razón social son de EJEMPLO: sustitúyelos.          ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 import type {
@@ -21,9 +21,9 @@ export const DEFAULT_BUSINESS: BusinessSettings = {
   description:
     "Repostería artesanal en el Mercado de Bailén (Málaga): tartas personalizadas, tartas de cumpleaños y de boda, cupcakes, galletas y postres hechos a mano con ingredientes de calidad.",
   legalName: "[Razón social o nombre del titular]",
-  taxId: "[NIF/CIF]",
+  taxId: "",
   registryInfo: "",
-  sanitaryRegistry: "[Nº de Registro Sanitario]",
+  sanitaryRegistry: "",
   venue: "Mercado de Bailén, puestos 70-71",
   street: "Plaza de Bailén, 8",
   postalCode: "29009",
@@ -33,8 +33,8 @@ export const DEFAULT_BUSINESS: BusinessSettings = {
   // Coordenadas del Mercado de Bailén (comprobadas en una sola fuente: verifícalas en Google Maps)
   latitude: 36.7245674,
   longitude: -4.4322519,
-  phone: "+34 600 000 000",
-  whatsapp: "+34 600 000 000",
+  phone: "+34 631 364 968",
+  whatsapp: "+34 631 364 968",
   email: "hola@tudominio.es",
   instagram: "",
   facebook: "",
@@ -60,8 +60,9 @@ export const DEFAULT_ORDERING: OrderingSettings = {
   maxOrdersPerSlot: 4,
   maxOrdersPerDay: 25,
   pickupEnabled: true,
-  deliveryEnabled: true,
-  deliveryInfo: "Repartimos en las zonas indicadas. La hora de entrega es aproximada (±30 minutos).",
+  // Solo recogida en el puesto del mercado (sin envío a domicilio)
+  deliveryEnabled: false,
+  deliveryInfo: "",
   payInStoreEnabled: true,
   cardPaymentEnabled: true,
   autoAcceptStandardOrders: false,
@@ -72,7 +73,7 @@ export const DEFAULT_ORDERING: OrderingSettings = {
 };
 
 export const DEFAULT_MARKETING: MarketingSettings = {
-  announcement: "Encarga online y elige día y hora · Recogida en tienda o entrega a domicilio",
+  announcement: "Encarga online y elige día y hora · Recogida en el Mercado de Bailén, puestos 70-71",
   showDemoBanner: true,
   loyaltyEnabled: true,
   loyaltyStampEveryCents: 1000,

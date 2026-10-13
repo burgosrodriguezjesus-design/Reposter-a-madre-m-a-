@@ -38,6 +38,7 @@ export default async function ZonePage({ params }: PageProps<"/zonas/[slug]">) {
   const zone = await getZone(slug);
   if (!zone) notFound();
   const [settings, products] = await Promise.all([getSettings(), getBestsellers(4)]);
+  if (!settings.ordering.deliveryEnabled) notFound();
 
   return (
     <div className="container-page py-10 sm:py-14">

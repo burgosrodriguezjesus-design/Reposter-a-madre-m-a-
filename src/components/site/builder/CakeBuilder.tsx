@@ -61,7 +61,7 @@ function Block({ n, title, hint, children }: { n: number; title: string; hint?: 
   );
 }
 
-export function CakeBuilder({ builder, quoteLeadHours }: { builder: BuilderSettings; quoteLeadHours: number }) {
+export function CakeBuilder({ builder, quoteLeadHours, deliveryEnabled = false }: { builder: BuilderSettings; quoteLeadHours: number; deliveryEnabled?: boolean }) {
   const [spec, setSpec] = useState<CustomCakeSpec>({
     celebration: builder.celebrations[0] ?? "",
     sizeId: builder.sizes[1]?.id ?? builder.sizes[0]?.id ?? "",
@@ -363,11 +363,11 @@ export function CakeBuilder({ builder, quoteLeadHours }: { builder: BuilderSetti
           <div className="mt-6 grid gap-4 sm:grid-cols-[220px_1fr]">
             <div>
               <label className="label" htmlFor="q-ful">
-                Recogida o entrega
+                {deliveryEnabled ? "Recogida o entrega" : "Recogida"}
               </label>
-              <select id="q-ful" className="input" value={quote.fulfillment} onChange={(e) => setQuote({ ...quote, fulfillment: e.target.value as "PICKUP" | "DELIVERY" })}>
+              <select id="q-ful" className="input" value={quote.fulfillment} disabled={!deliveryEnabled} onChange={(e) => setQuote({ ...quote, fulfillment: e.target.value as "PICKUP" | "DELIVERY" })}>
                 <option value="PICKUP">Recogida en tienda</option>
-                <option value="DELIVERY">Entrega a domicilio</option>
+                {deliveryEnabled && <option value="DELIVERY">Entrega a domicilio</option>}
               </select>
             </div>
             <div>

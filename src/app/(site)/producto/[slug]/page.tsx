@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: PageProps<"/producto/[slug]">
     title: product.seoTitle || `${product.name} · ${product.category.name} en ${business.city}`,
     description:
       product.seoDescription ||
-      `${product.shortDescription} Desde ${price}. Encarga online en ${business.name} (${business.city}) y recoge en tienda o recíbelo en casa.`.slice(0, 300),
+      `${product.shortDescription} Desde ${price}. Encarga online en ${business.name} (${business.city}) y recógelo en tienda.`.slice(0, 300),
     alternates: { canonical: `/producto/${product.slug}` },
     openGraph: {
       type: "website",

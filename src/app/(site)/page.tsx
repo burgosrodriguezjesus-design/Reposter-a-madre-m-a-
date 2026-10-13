@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, ChefHat, Leaf, MapPin, ShieldCheck, Sparkles, Truck } from "lucide-react";
+import { ArrowRight, CalendarCheck, ChefHat, Leaf, MapPin, ShieldCheck, Sparkles, Store } from "lucide-react";
 import { ProductCard } from "@/components/site/ProductCard";
 import { ReviewCard } from "@/components/site/ReviewCard";
 import { LocationBlock } from "@/components/site/LocationBlock";
@@ -93,7 +93,7 @@ export default async function HomePage() {
           {[
             { icon: ChefHat, title: "Hecho a mano", text: "Cada día en nuestro obrador" },
             { icon: Leaf, title: "Ingredientes reales", text: "Mantequilla, huevos camperos y fruta fresca" },
-            { icon: Truck, title: "Recogida o domicilio", text: "Tú eliges día y hora" },
+            { icon: Store, title: "Recogida sin esperas", text: "Tú eliges día y hora" },
             { icon: ShieldCheck, title: "Pago seguro", text: "Online o al recoger en tienda" },
           ].map((item) => (
             <div key={item.title} className="flex items-start gap-3">

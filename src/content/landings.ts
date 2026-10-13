@@ -82,7 +82,7 @@ export function getLandings(b: BusinessSettings): Landing[] {
       metaDescription: `Tartas de cumpleaños artesanales en ${city}: chocolate, queso, red velvet o personalizadas con nombre. Elige tamaño por número de invitados y encarga online.`,
       intro: [
         "Elegir la tarta de cumpleaños debería ser la parte fácil de organizar la fiesta. Por eso te indicamos en cada tarta cuántas raciones da cada tamaño y te dejamos añadir la dedicatoria y las velas en el mismo pedido.",
-        `Las recogidas son en ${b.venue || `nuestra tienda de ${city}`} y, si lo prefieres, te la llevamos a casa dentro de nuestras zonas de reparto.`,
+        `Las recogidas son en ${b.venue || `nuestra tienda de ${city}`}, el día y a la hora que elijas al hacer el pedido.`,
       ],
       categorySlug: "tartas-de-cumpleanos",
       highlights: [
@@ -100,7 +100,7 @@ export function getLandings(b: BusinessSettings): Landing[] {
       label: `Encargar tartas en ${city}`,
       h1: `Encargar tartas en ${city}, paso a paso`,
       metaTitle: `Encargar tartas en ${city} | Pedido online en 3 minutos`,
-      metaDescription: `Cómo encargar una tarta en ${city}: elige producto, día y hora, paga online o en tienda y sigue tu pedido. Plazos, zonas de entrega y horario de recogida.`,
+      metaDescription: `Cómo encargar una tarta en ${city}: elige producto, día y hora, paga online o en tienda y sigue tu pedido. Plazos, recogida y horario de recogida.`,
       intro: [
         `Encargar una tarta en ${b.name} se hace en tres pasos: eliges el producto (o lo diseñas), seleccionas el día y la hora de recogida o entrega y confirmas tus datos. El calendario solo te muestra los huecos que de verdad tenemos libres.`,
         "Recibirás un email con el número de pedido y un enlace para consultar su estado en cualquier momento: pendiente, aceptado, en preparación, listo y entregado.",
@@ -109,7 +109,7 @@ export function getLandings(b: BusinessSettings): Landing[] {
       highlights: [
         { title: "1. Elige", text: "Del catálogo o desde el personalizador de tartas." },
         { title: "2. Reserva", text: "Día y hora según la disponibilidad real del obrador." },
-        { title: "3. Disfruta", text: "Recoge en tienda o recíbelo en casa." },
+        { title: "3. Disfruta", text: "Recógelo en tienda a la hora elegida." },
       ],
       ctaLabel: "Empezar mi pedido",
       ctaHref: "/productos",

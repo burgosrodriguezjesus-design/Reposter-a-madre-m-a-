@@ -30,7 +30,7 @@ export default async function BuilderPage() {
       </header>
       <div className="mt-10">
         {builder.enabled ? (
-          <CakeBuilder builder={builder} quoteLeadHours={lead} />
+          <CakeBuilder builder={builder} quoteLeadHours={lead} deliveryEnabled={settings.ordering.deliveryEnabled} />
         ) : (
           <p className="rounded-3xl bg-white p-8 text-cocoa-700 shadow-soft">
             El personalizador no está disponible en este momento. Echa un vistazo a nuestras{" "}

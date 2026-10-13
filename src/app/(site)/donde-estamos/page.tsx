@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const { business: b } = await getSettings();
   return {
     title: `Dónde estamos: ${b.name} en ${b.neighborhood ? `${b.neighborhood}, ` : ""}${b.city}`,
-    description: `Dirección, horario, teléfono y cómo llegar a ${b.name}: ${b.street}, ${b.postalCode} ${b.city}. Zonas de entrega a domicilio y recogida en tienda.`,
+    description: `Dirección, horario, teléfono y cómo llegar a ${b.name}: ${b.street}, ${b.postalCode} ${b.city}. Recogida en tienda.`,
     alternates: { canonical: "/donde-estamos" },
   };
 }

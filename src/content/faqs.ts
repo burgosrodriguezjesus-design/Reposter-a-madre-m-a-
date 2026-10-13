@@ -38,7 +38,7 @@ export function buildFaqs(
           }
         : {
             q: `¿Hacéis entregas a domicilio en ${b.city}?`,
-            a: `Por ahora trabajamos con recogida en nuestro obrador de ${fullAddress(b)}. Si necesitas una entrega especial, escríbenos y lo hablamos.`,
+            a: `No, solo trabajamos con recogida en ${fullAddress(b)}, el día y a la hora que elijas al hacer el pedido.`,
           },
     pickup: {
       q: "¿Dónde y cuándo se recoge el pedido?",

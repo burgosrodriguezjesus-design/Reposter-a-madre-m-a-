@@ -11,8 +11,8 @@ export function setupChecklist(settings: AllSettings, hasDemo: boolean): SetupIt
   return [
     {
       label: "Datos del negocio",
-      ok: !b.street.includes("Ejemplo") && !b.taxId.includes("[") && !b.phone.includes("600 000 000"),
-      help: "Sustituye dirección, teléfono, NIF y razón social de ejemplo.",
+      ok: !b.street.includes("Ejemplo") && !b.legalName.includes("[") && !b.phone.includes("600 000 000"),
+      help: "Sustituye dirección, teléfono y razón social de ejemplo.",
       href: "/admin/ajustes",
     },
     { label: "Catálogo real", ok: !hasDemo, help: "Añade tus productos y elimina los de demostración.", href: "/admin/ajustes#demo" },

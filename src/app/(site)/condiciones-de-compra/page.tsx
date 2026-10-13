@@ -11,7 +11,7 @@ export default async function TermsPage() {
   return (
     <LegalPage title="Condiciones de compra" path="/condiciones-de-compra">
       <p>
-        Estas condiciones regulan los pedidos realizados en la web de {b.name}, titularidad de {b.legalName} (NIF {b.taxId}), con domicilio
+        Estas condiciones regulan los pedidos realizados en la web de {b.name}, titularidad de {b.legalName}{b.taxId ? ` (NIF ${b.taxId})` : ""}, con domicilio
         en {fullAddress(b)}.
       </p>
       <h2>1. Productos y precios</h2>
@@ -37,11 +37,13 @@ export default async function TermsPage() {
         Puedes pagar online con tarjeta mediante Stripe (pago seguro; no almacenamos los datos de tu tarjeta) o, cuando esté disponible para
         recogida en tienda, reservar y pagar al recoger. {m.giftCardsEnabled ? "También se aceptan tarjetas regalo, válidas durante el plazo indicado en ellas." : ""}
       </p>
-      <h2>5. Recogida y entrega</h2>
+      <h2>5. Recogida{o.deliveryEnabled ? " y entrega" : ""}</h2>
       <p>
-        La recogida se realiza en nuestro establecimiento en la fecha y hora elegidas. Las entregas a domicilio se realizan en las zonas
-        indicadas en la web; la hora es aproximada. Si no hay nadie para recibir el pedido, contactaremos contigo para reprogramar la
-        entrega, lo que podría suponer un nuevo coste de envío. Los productos deben conservarse refrigerados cuando así se indique.
+        La recogida se realiza en nuestro establecimiento en la fecha y hora elegidas.{" "}
+        {o.deliveryEnabled
+          ? "Las entregas a domicilio se realizan en las zonas indicadas en la web; la hora es aproximada. Si no hay nadie para recibir el pedido, contactaremos contigo para reprogramar la entrega, lo que podría suponer un nuevo coste de envío."
+          : "No realizamos envíos a domicilio."}{" "}
+        Los productos deben conservarse refrigerados cuando así se indique.
       </p>
       <h2>6. Desistimiento, cancelaciones y devoluciones</h2>
       <p>

@@ -137,7 +137,7 @@ export function CartView() {
             <dd className="font-semibold">{formatPrice(subtotalCents)}</dd>
           </div>
           <div className="flex justify-between text-sm text-cocoa-500">
-            <dt>Envío y descuentos</dt>
+            <dt>Descuentos y tarjeta regalo</dt>
             <dd>en el siguiente paso</dd>
           </div>
         </dl>

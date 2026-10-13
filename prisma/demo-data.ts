@@ -654,19 +654,9 @@ export const DEMO_PRODUCTS: DemoProduct[] = [
   },
 ];
 
-// Zona de reparto de EJEMPLO alrededor del mercado: añade tus códigos postales y precios reales
-// en /admin/reparto (o desactiva el envío a domicilio si solo hay recogida en el puesto).
-export const DEMO_ZONES = [
-  {
-    slug: "bailen-miraflores",
-    name: "Bailén-Miraflores",
-    postalCodes: ["29009"],
-    fee: 400,
-    minOrder: 2000,
-    freeFrom: 6000,
-    description: "",
-  },
-];
+// Sin zonas de reparto: solo recogida en el puesto. Si algún día se hace envío a domicilio, se
+// crean en /admin/reparto y se activa en /admin/ajustes.
+export const DEMO_ZONES: { slug: string; name: string; postalCodes: string[]; fee: number; minOrder: number; freeFrom: number; description: string }[] = [];
 
 export const DEMO_REVIEWS = [
   {
@@ -684,7 +674,7 @@ export const DEMO_REVIEWS = [
 export const DEMO_PROMOTIONS = [
   {
     title: "10 % en tu primer pedido online",
-    description: "Usa el código BIENVENIDA10 en pedidos desde 25 €. Válido para recogida y entrega a domicilio.",
+    description: "Usa el código BIENVENIDA10 en pedidos desde 25 €.",
     badge: "Bienvenida",
     ctaLabel: "Ver productos",
     ctaHref: "/productos",

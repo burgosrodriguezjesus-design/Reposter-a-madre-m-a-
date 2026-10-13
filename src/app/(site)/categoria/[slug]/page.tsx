@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: PageProps<"/categoria/[slug]"
     title: category.seoTitle || `${category.name} en ${business.city}`,
     description:
       category.seoDescription ||
-      `${category.name} artesanales de ${business.name} en ${business.city}. ${category.description} Encarga online y recoge en tienda o recíbelo en casa.`,
+      `${category.name} artesanales de ${business.name} en ${business.city}. ${category.description} Encarga online y recógelo en tienda.`,
     alternates: { canonical: `/categoria/${category.slug}` },
     openGraph: category.imageUrl && !category.imageUrl.endsWith(".svg") ? { images: [category.imageUrl] } : undefined,
   };

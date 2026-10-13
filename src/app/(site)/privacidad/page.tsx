@@ -16,7 +16,7 @@ export default async function PrivacyPage() {
       </p>
       <h2>Responsable del tratamiento</h2>
       <p>
-        {b.legalName} · NIF {b.taxId} · {fullAddress(b)} · {b.email} · {b.phone}
+        {b.legalName}{b.taxId ? ` · NIF ${b.taxId}` : ""} · {fullAddress(b)} · {b.email} · {b.phone}
       </p>
       <h2>Qué datos tratamos y para qué</h2>
       <ul>

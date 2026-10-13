@@ -25,6 +25,9 @@ export async function POST(request: Request) {
   if (input.website) return NextResponse.json({ error: "Solicitud no válida" }, { status: 400 });
 
   const settings = await getSettings();
+  if (input.fulfillment === "DELIVERY" && !settings.ordering.deliveryEnabled) {
+    return NextResponse.json({ error: "Solo hacemos recogida en tienda" }, { status: 400 });
+  }
   const priced = priceCustomCake(settings.builder, input.spec);
   if (!priced.ok) return NextResponse.json({ error: priced.error }, { status: 400 });
   if (input.referencePhotoUrl && !isOwnUploadUrl(input.referencePhotoUrl)) {
