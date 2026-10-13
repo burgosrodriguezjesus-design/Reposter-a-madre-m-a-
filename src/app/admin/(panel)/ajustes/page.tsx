@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CheckCircle2, CircleAlert, Trash2 } from "lucide-react";
 import { Card, PageHeader } from "@/components/admin/ui";
-import { ActionForm, SubmitButton } from "@/components/admin/forms";
+import { ActionForm, ConfirmButton, SubmitButton } from "@/components/admin/forms";
 import { SettingsForm, type FieldDef } from "@/components/admin/SettingsForm";
 import { DemoDataButton } from "./DemoDataButton";
 import { getSettings } from "@/lib/settings";
@@ -9,7 +9,8 @@ import { hasDemoContent } from "@/lib/catalog";
 import { requirePermission } from "@/lib/auth";
 import { setupChecklist } from "@/lib/setup-status";
 import { isWhatsAppApiConfigured } from "@/lib/whatsapp";
-import { removeBusinessPhoto, uploadBusinessPhoto } from "./actions";
+import { connectObrador, disconnectObrador, removeBusinessPhoto, uploadBusinessPhoto } from "./actions";
+import { obradorStatus } from "@/lib/obrador";
 
 export const metadata = { title: "Ajustes" };
 
@@ -88,7 +89,7 @@ function pick(obj: object, fields: FieldDef[]) {
 
 export default async function SettingsPage() {
   await requirePermission("settings.manage");
-  const [settings, demo] = await Promise.all([getSettings(), hasDemoContent()]);
+  const [settings, demo, obrador] = await Promise.all([getSettings(), hasDemoContent(), obradorStatus()]);
   const b = settings.business;
   const checklist = setupChecklist(settings, demo);
   const integrations = [
@@ -106,6 +107,7 @@ export default async function SettingsPage() {
     ["marketing", "Marketing"],
     ["seo", "SEO y Google"],
     ["avisos", "Avisos"],
+    ["obrador", "Obrador"],
     ["cuenta", "Cuenta"],
     ["demo", "Demo"],
   ];
@@ -199,6 +201,47 @@ export default async function SettingsPage() {
 
         <Card title="Avisos de nuevos pedidos" id="avisos">
           <SettingsForm section="notifications" fields={NOTIFICATION_FIELDS} initial={pick(settings.notifications, NOTIFICATION_FIELDS)} />
+        </Card>
+
+        <Card title="Conexión con el obrador" id="obrador">
+          <p className="text-sm text-cocoa-600">
+            Cada pedido confirmado en la web aparece solo en la app del obrador (calendario, producción, ingredientes y compra) con el día y la
+            hora de recogida. Si se cancela aquí, también se cancela allí.
+          </p>
+          {obrador.connected ? (
+            <div className="mt-4 space-y-3">
+              <p className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="size-4 text-emerald-600" />
+                <span>
+                  Conectado con <strong>{obrador.host}</strong> desde el{" "}
+                  {new Date(obrador.connectedAt).toLocaleDateString("es-ES", { timeZone: settings.business.timezone })}.
+                </span>
+              </p>
+              {obrador.pending > 0 && <p className="text-sm text-cocoa-600">Enviando {obrador.pending} pedidos…</p>}
+              {obrador.failed > 0 && (
+                <p className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                  <CircleAlert className="size-4" /> {obrador.failed} pedidos no se pudieron enviar. Revisa la conexión y reintenta desde
+                  Registro de actividad → Trabajos fallidos.
+                </p>
+              )}
+              <form action={disconnectObrador}>
+                <ConfirmButton message="¿Desconectar el obrador? Los pedidos nuevos dejarán de enviarse (los que ya están allí no se borran).">
+                  Desconectar
+                </ConfirmButton>
+              </form>
+            </div>
+          ) : (
+            <ActionForm action={connectObrador} className="mt-4 space-y-2" resetOnSuccess>
+              <label className="label" htmlFor="obrador-code">
+                Código de conexión
+              </label>
+              <input id="obrador-code" name="code" required autoComplete="off" className="input font-mono" placeholder="https://obrador-pasteleria.vercel.app#tienda_…" />
+              <p className="text-xs text-cocoa-500">En la app del obrador: Configuración → Tienda online → «Conectar con la tienda online», copia el código y pégalo aquí.</p>
+              <SubmitButton className="btn-dark btn-sm" pendingText="Conectando…">
+                Conectar
+              </SubmitButton>
+            </ActionForm>
+          )}
         </Card>
 
         <Card title="Integraciones">

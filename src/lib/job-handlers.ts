@@ -23,6 +23,7 @@ import { securityAlert } from "@/lib/alerts";
 import { deletePrivate } from "@/lib/storage";
 import { log } from "@/lib/logger";
 import { siteUrl } from "@/lib/site-url";
+import { syncOrderToObrador } from "@/lib/obrador";
 
 /** Plantillas de email que se envían desde la cola (el payload solo lleva identificadores). */
 async function buildEmails(p: JobPayload): Promise<EmailMessage[]> {
@@ -63,6 +64,7 @@ async function buildEmails(p: JobPayload): Promise<EmailMessage[]> {
 
 const handlers: Record<string, JobHandler> = {
   "order.confirmed": async (p) => handleOrderConfirmed(String(p.orderId)),
+  "obrador.sync": async (p) => syncOrderToObrador(String(p.orderId)),
   "order.loyalty": async (p) => {
     await awardLoyalty(String(p.orderId));
   },

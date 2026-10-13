@@ -10,6 +10,9 @@ import type { AllSettings } from "@/lib/settings-types";
 import { saveImage, UploadError } from "@/lib/storage";
 import { revalidateSite, str } from "@/lib/admin";
 import type { ActionResult } from "@/components/admin/forms";
+import { revalidatePath } from "next/cache";
+import { enqueueObradorSync, removeObradorConnection, saveObradorConnection } from "@/lib/obrador";
+import { kickJobs } from "@/lib/job-handlers";
 
 const CAPACITY_KEYS = ["minLeadHours", "maxAdvanceDays", "slotMinutes", "maxOrdersPerSlot", "maxOrdersPerDay"];
 const DELIVERY_KEYS = ["deliveryEnabled", "deliveryInfo"];
@@ -100,4 +103,33 @@ export async function deleteDemoData(): Promise<ActionResult> {
   await auditAdmin(admin, { action: "catalog.demo_deleted", severity: "warning" });
   revalidateSite();
   return { ok: true, message: "Datos de demostración eliminados. ¡Ya puedes añadir tu catálogo real!" };
+}
+
+/**
+ * Conecta la web con la app del obrador (código de Configuración → Tienda online del obrador).
+ * Al conectar se envían también los pedidos pendientes de recoger, para que el calendario esté completo.
+ */
+export async function connectObrador(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const admin = await requirePermission("settings.manage");
+  const code = str(formData, "code", 500);
+  if (!(await saveObradorConnection(code))) {
+    return { ok: false, error: "El código no es válido. Cópialo completo desde el obrador: Configuración → Tienda online." };
+  }
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: (await getSettings()).business.timezone }).format(new Date());
+  const upcoming = await db.order.findMany({
+    where: { scheduledDate: { gte: today }, status: { in: ["PENDING", "ACCEPTED", "IN_PREPARATION", "READY"] } },
+    select: { id: true },
+  });
+  for (const o of upcoming) await enqueueObradorSync(o.id, "connected");
+  await auditAdmin(admin, { action: "obrador.connected", entity: "Setting", entityId: "obrador-connection", details: { upcoming: upcoming.length } });
+  kickJobs();
+  revalidatePath("/admin/ajustes");
+  return { ok: true, message: upcoming.length ? `Conectado. Enviando ${upcoming.length} pedidos pendientes al obrador.` : "Conectado con el obrador." };
+}
+
+export async function disconnectObrador(): Promise<void> {
+  const admin = await requirePermission("settings.manage");
+  await removeObradorConnection();
+  await auditAdmin(admin, { action: "obrador.disconnected", entity: "Setting", entityId: "obrador-connection", severity: "warning" });
+  revalidatePath("/admin/ajustes");
 }

@@ -14,17 +14,18 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: string; cu
   ACCEPTED: {
     label: "Aceptado",
     tone: "bg-sky-100 text-sky-900",
-    customerText: "¡Pedido confirmado! Ya lo tenemos en nuestra agenda.",
+    customerText: "¡Pedido confirmado! Te esperamos en el puesto el día y la hora de recogida.",
   },
   IN_PREPARATION: {
     label: "En preparación",
     tone: "bg-violet-100 text-violet-900",
-    customerText: "Estamos preparando tu pedido en el obrador.",
+    // El cliente no ve el progreso interno: para él sigue «confirmado» hasta que lo recoge
+    customerText: "¡Pedido confirmado! Te esperamos en el puesto el día y la hora de recogida.",
   },
   READY: {
     label: "Listo",
     tone: "bg-emerald-100 text-emerald-900",
-    customerText: "Tu pedido está listo.",
+    customerText: "¡Pedido confirmado! Te esperamos en el puesto el día y la hora de recogida.",
   },
   DELIVERED: {
     label: "Entregado",
@@ -43,8 +44,8 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: string; cu
   },
 };
 
-/** Flujo principal que ve el cliente en el seguimiento. */
-export const STATUS_FLOW: OrderStatus[] = ["PENDING", "ACCEPTED", "IN_PREPARATION", "READY", "DELIVERED"];
+/** Estados que se avisan al cliente por email (el resto es organización interna del obrador). */
+export const CUSTOMER_NOTIFIED_STATUSES: OrderStatus[] = ["ACCEPTED", "REJECTED", "CANCELLED"];
 
 /** Transiciones permitidas desde el panel. */
 export const NEXT_STATUSES: Record<OrderStatus, OrderStatus[]> = {

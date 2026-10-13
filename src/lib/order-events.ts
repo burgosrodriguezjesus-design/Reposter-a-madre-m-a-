@@ -3,12 +3,13 @@ import type { OrderStatus } from "@prisma/client";
 import { db, type Tx } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { enqueue } from "@/lib/jobs";
-import { NEXT_STATUSES } from "@/lib/order-status";
+import { CUSTOMER_NOTIFIED_STATUSES, NEXT_STATUSES } from "@/lib/order-status";
 import { secureToken } from "@/lib/ids";
 import { getStripe } from "@/lib/stripe";
 import { securityAlert } from "@/lib/alerts";
 import { log } from "@/lib/logger";
 import { inc } from "@/lib/metrics";
+import { enqueueObradorSync } from "@/lib/obrador";
 
 /**
  * Ciclo de vida de los pedidos con garantías de integridad:
@@ -71,6 +72,7 @@ export async function handleOrderConfirmed(orderId: string) {
   if (settings.notifications.whatsappNotifyAdmin && settings.notifications.adminWhatsapp) {
     await enqueue("whatsapp.new-order", { orderId }, { dedupeKey: `whatsapp:new-order:${orderId}` });
   }
+  await enqueueObradorSync(orderId, "confirmed");
 }
 
 type StripePayment = { paymentIntentId: string | null; amountTotal: number | null; currency: string | null };
@@ -210,12 +212,13 @@ export async function changeOrderStatus(
       if (count === 0) return false;
       await tx.orderStatusEvent.create({ data: { orderId, status, note: options.note || null, ...actor } });
       if (status === "DELIVERED") await enqueue("order.loyalty", { orderId }, { tx, dedupeKey: `order.loyalty:${orderId}` });
+      await enqueueObradorSync(orderId, status, tx);
       return true;
     });
     if (!changed) return { ok: false, error: "El pedido ha cambiado mientras tanto. Recarga la página." };
   }
 
-  if (options.notifyCustomer !== false) {
+  if (options.notifyCustomer !== false && CUSTOMER_NOTIFIED_STATUSES.includes(status)) {
     await enqueue("email.send", { template: "order-status", orderId, status, note: options.note ?? null }, { dedupeKey: `email:order-status:${orderId}:${status}` });
   }
   return { ok: true };
@@ -313,6 +316,8 @@ export async function releaseOrderHolds(
         history: { create: { status, note, actorId: opts.actor?.id ?? null, actorEmail: opts.actor?.email ?? null } },
       },
     });
+    // Solo si ya se había enviado (un pedido sin pagar nunca llegó al obrador)
+    if (order.status !== "PENDING_PAYMENT") await enqueueObradorSync(orderId, status, tx);
     return true;
   });
 }

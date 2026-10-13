@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarPlus, Check, CircleCheck, Clock, LoaderCircle, MapPin, Star, XCircle } from "lucide-react";
-import clsx from "clsx";
+import { CalendarPlus, CircleCheck, Clock, LoaderCircle, MapPin, Star, XCircle } from "lucide-react";
 import { db } from "@/lib/db";
 import { safeEqual } from "@/lib/crypto";
 import { accessTokenFor } from "@/lib/access-token";
@@ -10,7 +9,7 @@ import { log } from "@/lib/logger";
 import { getSettings } from "@/lib/settings";
 import { getStripe, paymentFromSession } from "@/lib/stripe";
 import { markOrderPaid } from "@/lib/order-events";
-import { ORDER_STATUS, PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL, STATUS_FLOW } from "@/lib/order-status";
+import { ORDER_STATUS, PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL } from "@/lib/order-status";
 import { formatDateTime, formatLocalDate, formatPrice, whatsappLink } from "@/lib/format";
 import { fullAddress, mapsDirectionsUrl } from "@/lib/structured-data";
 import { ClearCart } from "@/components/site/ClearCart";
@@ -62,7 +61,6 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/pe
   const isNew = query.nuevo === "1" || query.pago === "ok";
   const waitingPayment = order.status === "PENDING_PAYMENT";
   const closed = order.status === "REJECTED" || order.status === "CANCELLED";
-  const currentIndex = STATUS_FLOW.indexOf(order.status);
   const statusInfo = ORDER_STATUS[order.status];
   const location = order.fulfillment === "PICKUP" ? fullAddress(b) : `${order.address ?? ""} ${order.postalCode ?? ""}`;
 
@@ -93,30 +91,6 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/pe
         )}
       </div>
 
-      {/* Línea de estado */}
-      {!closed && !waitingPayment && (
-        <ol className="mx-auto mt-10 grid max-w-3xl grid-cols-5 gap-2" aria-label="Estado del pedido">
-          {STATUS_FLOW.map((status, i) => {
-            const done = i <= currentIndex;
-            return (
-              <li key={status} className="flex flex-col items-center gap-2 text-center">
-                <span
-                  className={clsx(
-                    "flex size-10 items-center justify-center rounded-full border-2 text-sm font-bold",
-                    done ? "border-blush-600 bg-blush-600 text-white" : "border-sand-300 bg-white text-cocoa-500",
-                    i === currentIndex && "ring-4 ring-blush-200",
-                  )}
-                >
-                  {done ? <Check className="size-4" /> : i + 1}
-                </span>
-                <span className={clsx("text-xs sm:text-sm", done ? "font-semibold text-cocoa-900" : "text-cocoa-500")}>
-                  {ORDER_STATUS[status].label}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-      )}
       {order.status === "REJECTED" && order.rejectionReason && (
         <p className="mx-auto mt-6 max-w-xl rounded-2xl bg-cream-200 p-4 text-center text-cocoa-700">{order.rejectionReason}</p>
       )}

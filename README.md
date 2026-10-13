@@ -201,6 +201,22 @@ Todas las fotos se recodifican a WebP, se redimensionan y se les quitan los meta
 
 ---
 
+### App del obrador
+
+Los pedidos confirmados se envían solos a la app de gestión del obrador (calendario, producción, ingredientes y compra):
+
+1. En el obrador: **Configuración → Tienda online → «Conectar con la tienda online»** y copia el código.
+2. En la web: **Ajustes → Conexión con el obrador**, pega el código y pulsa **Conectar** (se envían también los pedidos
+   pendientes de recoger).
+
+- El código se guarda cifrado (AES-256-GCM) en una fila propia de `Setting`, no en los ajustes generales, y no se vuelve
+  a mostrar. Solo se aceptan direcciones `https://` con nombre de dominio.
+- El envío va por la cola de trabajos (`obrador.sync`): si el obrador no responde se reintenta y nunca se duplica (el
+  número de pedido es la referencia). Se envían nombre, teléfono, día, hora, productos, opciones, dedicatoria y notas;
+  **no** el email ni datos de pago.
+- Las cancelaciones y rechazos de la web también se envían. Lo que hagas en el obrador no cambia nada en la web: el
+  cliente solo ve «Pedido confirmado» y el día de recogida.
+
 ## Google
 
 **Ninguna web puede garantizar el primer puesto en Google**, pero esta parte de una base técnica sólida. Para aprovecharla:
