@@ -1,0 +1,126 @@
+# ════════════════════════════════════════════════════════════════════
+#  Gitleaks: detección de secretos en el código y en TODO el historial de git.
+#  CI: .github/workflows/security.yml (gitleaks git, fetch-depth: 0).
+#  Local:  gitleaks git --config .gitleaks.toml --redact      (historial)
+#          gitleaks dir --config .gitleaks.toml --redact .    (árbol de trabajo)
+#
+#  Se extiende la configuración por defecto de gitleaks (cientos de reglas: Stripe, AWS,
+#  Supabase/JWT, claves privadas, tokens de GitHub/Slack...) y se añaden reglas del proyecto.
+#
+#  Política de excepciones: SOLO valores ficticios conocidos o archivos de ejemplo. Nunca
+#  añadas aquí un secreto real "para que pase el CI": si se filtró, ROTARLO es obligatorio
+#  (borrarlo del historial no basta; ya puede estar copiado).
+# ════════════════════════════════════════════════════════════════════
+title = "Repostería Madre Mía – gitleaks"
+
+[extend]
+useDefault = true
+
+# ───────────────────────── Reglas del proyecto ─────────────────────────
+
+[[rules]]
+id = "reposteria-data-encryption-keys"
+description = "Claves de cifrado de datos personales (DATA_ENCRYPTION_KEYS: kid:base64 de 32 bytes)"
+regex = '''DATA_ENCRYPTION_KEYS\s*[=:]\s*["']?([A-Za-z0-9_-]{1,32}:[A-Za-z0-9+/]{43}=(?:\s*,\s*[A-Za-z0-9_-]{1,32}:[A-Za-z0-9+/]{43}=)*)'''
+secretGroup = 1
+keywords = ["data_encryption_keys"]
+
+[[rules]]
+id = "reposteria-data-hash-key"
+description = "Clave HMAC de los índices ciegos (DATA_HASH_KEY, base64 de 32 bytes)"
+regex = '''DATA_HASH_KEY\s*[=:]\s*["']?([A-Za-z0-9+/]{43}=)'''
+secretGroup = 1
+keywords = ["data_hash_key"]
+
+[[rules]]
+id = "reposteria-app-secrets"
+description = "Secretos de la aplicación (AUTH_SECRET, CRON_SECRET, METRICS_TOKEN, NEXT_SERVER_ACTIONS_ENCRYPTION_KEY)"
+regex = '''(?:AUTH_SECRET|CRON_SECRET|METRICS_TOKEN|NEXT_SERVER_ACTIONS_ENCRYPTION_KEY)\s*[=:]\s*["']?([A-Za-z0-9+/_=-]{32,})'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["auth_secret", "cron_secret", "metrics_token", "next_server_actions_encryption_key"]
+
+[[rules]]
+id = "reposteria-postgres-url-with-password"
+description = "Cadena de conexión PostgreSQL con contraseña"
+regex = '''postgres(?:ql)?://[^:\s/@"']+:([^@\s"']{8,})@[^\s"']+'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["postgres://", "postgresql://"]
+
+[[rules]]
+id = "reposteria-redis-url-with-password"
+description = "URL de Redis con contraseña"
+regex = '''rediss?://[^:\s/@"']*:([^@\s"']{8,})@[^\s"']+'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["redis://", "rediss://"]
+
+[[rules]]
+id = "reposteria-age-secret-key"
+description = "Identidad privada de age (descifra las copias de seguridad)"
+regex = '''AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}'''
+keywords = ["age-secret-key-1"]
+
+[[rules]]
+id = "reposteria-supabase-service-role"
+description = "SUPABASE_SERVICE_ROLE_KEY (JWT con rol service_role: salta RLS)"
+regex = '''SUPABASE_SERVICE_ROLE_KEY\s*[=:]\s*["']?(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|sb_secret_[A-Za-z0-9_-]{20,})'''
+secretGroup = 1
+keywords = ["supabase_service_role_key"]
+
+# ───────────────────────── Excepciones ─────────────────────────
+
+# Archivos de ejemplo y casos de prueba: solo contienen valores ficticios por diseño.
+[[allowlists]]
+description = "Plantillas de configuración y pruebas (valores ficticios)"
+paths = [
+  '''(?:^|/)\.env\.example$''',
+  '''(?:^|/)\.env\.[a-z]+\.example$''',
+  '''^tests/''',
+  '''(?:^|/)[^/]+\.(?:test|spec)\.tsx?$''',
+  '''^\.semgrep/rules\.tsx?$''',
+  '''(?:^|/)package-lock\.json$''',
+]
+
+# Claves de prueba FIJAS de vitest.config.ts (bytes 0x00..0x1f, 0x20..0x3f y 0x40..0x5f en
+# base64): públicas y sin valor; las de CI se generan aleatoriamente en cada ejecución.
+[[allowlists]]
+description = "Claves de prueba conocidas de vitest"
+condition = "AND"
+paths = ['''^vitest(?:\.[a-z]+)?\.config\.ts$''']
+regexes = [
+  '''AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''',
+  '''ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=''',
+  '''QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=''',
+]
+
+# Lista de contraseñas comunes PROHIBIDAS de src/lib/password.ts (diccionario de rechazo,
+# no credenciales). Solo las líneas que son listas de cadenas entre comillas de ese archivo.
+[[allowlists]]
+description = "Diccionario de contraseñas débiles prohibidas"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^src/lib/password\.ts$''']
+regexes = ['''^\s*(?:"[^"\n]{1,40}",\s*)+(?:"[^"\n]{1,40}",?)?\s*$''']
+
+# Credenciales del contenedor postgres EFÍMERO de CI (solo accesible desde el runner) y
+# marcadores de documentación. Se comparan con el SECRETO detectado (valor por defecto).
+[[allowlists]]
+description = "Marcadores de posición y credenciales efímeras de CI"
+regexes = [
+  '''^postgres_ci_only$''',
+  '''^sk_test_ci_sin_red$''',
+  '''(?i)^(?:\.\.\.|<[^>]+>|\$\{?[A-Z_]+\}?|password|contrase(?:ñ|n)a|changeme|cambiame|xxxx+|reposteria|postgres)$''',
+  '''(?i)(?:tu[-_]?clave|your[-_]?(?:key|secret|password)|placeholder)''',
+]
+
+# URLs de conexión de ejemplo (desarrollo: reposteria:reposteria@localhost). Solo localhost: un host
+# de Compose/Kubernetes (postgres, db...) con contraseña literal SÍ se detecta.
+# Se comparan con la coincidencia completa para poder exigir que el host sea local.
+[[allowlists]]
+description = "Cadenas de conexión locales de desarrollo"
+regexTarget = "match"
+regexes = [
+  '''(?i)^(?:postgres(?:ql)?|rediss?)://[^:\s/@]*:[^@\s]+@(?:localhost|127\.0\.0\.1)(?::\d+)?(?:/|$)''',
+]

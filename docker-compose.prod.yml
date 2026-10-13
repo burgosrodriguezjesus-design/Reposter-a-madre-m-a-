@@ -1,0 +1,536 @@
+# ════════════════════════════════════════════════════════════════════
+#  Producción AUTOALOJADA (alternativa a Vercel + Supabase + Upstash)
+# ════════════════════════════════════════════════════════════════════
+#  Internet ──▶ waf (nginx + ModSecurity/OWASP CRS, TLS, 80/443)
+#                 │ red "app" (interna)
+#                 ▼
+#               app ×3 (Next.js standalone, solo lectura, sin capacidades) ◀── scheduler (supercronic)
+#                 │ red "data" (interna)                       │ red "egress": Stripe, SMTP, Supabase
+#                 ▼                                             ▼
+#               pgbouncer ──TLS──▶ postgres 16 ◀── migrate (one-shot), backup (supercronic)
+#               redis 7
+#
+#  Redes:
+#   edge    solo "waf"; es la única con puertos publicados (80/443).
+#   app     waf ⇄ app ⇄ scheduler. internal: true (sin salida a Internet).
+#   data    app ⇄ pgbouncer ⇄ postgres, app ⇄ redis, migrate/backup ⇄ postgres. internal: true.
+#   egress  solo "app": salida a Internet para Stripe, SMTP, Supabase Storage y la comprobación
+#           de contraseñas filtradas. Nadie entra por ella (sin puertos publicados).
+#  La pila de monitorización (infra/monitoring) se une a "reposteria_data" con
+#  REPOSTERIA_APP_NETWORK=reposteria_data (ahí están app, postgres y redis).
+#
+#  ── Secretos: dos mecanismos, explicados ──
+#  1) Servicios de infraestructura (postgres, pgbouncer, redis, scheduler, backup): SECRETOS DE
+#     DOCKER (bloque "secrets:" al final). Cada servicio monta SOLO los que necesita en
+#     /run/secrets/<nombre>; no aparecen en "docker inspect" ni en variables de entorno. Se generan
+#     con infra/postgres/gen-secrets.sh en SECRETS_DIR (por defecto /etc/reposteria/secrets,
+#     FUERA del repositorio, directorio 0700 de root). Sin Swarm, Compose los monta como bind
+#     mounts con los permisos del archivo del host (0644 dentro de un directorio 0700).
+#  2) La app y "migrate": la app (Next.js) y Prisma leen la configuración de variables de entorno,
+#     no de archivos, así que reciben un env_file NO versionado:
+#       APP_ENV_FILE      (por defecto /etc/reposteria/.env.production, 0600) → servicio app
+#       MIGRATE_ENV_FILE  (por defecto /etc/reposteria/secrets/migrate.env)  → servicio migrate
+#     Ojo: las variables de un env_file SÍ se ven con "docker inspect" (protege el acceso al
+#     socket de Docker como si fuera root). Nunca pongas estos archivos dentro del repositorio.
+#     CRON_SECRET debe valer lo mismo en .env.production y en el secreto "cron_secret";
+#     la contraseña de reposteria_app igual en DATABASE_URL y en "postgres_app_password"
+#     (gen-secrets.sh escribe app.env.fragment con las líneas correctas).
+#
+#  ── Variables de interpolación de ESTE archivo (no de la app) ──
+#  Van en un archivo aparte, p. ej. /etc/reposteria/compose.env:
+#    SERVER_NAME=www.tudominio.es            dominio canónico (certificado TLS)
+#    NEXT_PUBLIC_SITE_URL=https://www.tudominio.es   se incrusta al compilar la imagen
+#    BACKUP_AGE_RECIPIENT=age1...            clave PÚBLICA age para cifrar copias
+#    (opcionales) APP_VERSION, SUPABASE_URL, SECRETS_DIR, APP_ENV_FILE, MIGRATE_ENV_FILE,
+#    TLS_CERT_DIR, ACME_WEBROOT, BACKUP_RETENTION_DAYS, NODE_EXPORTER_TEXTFILE_DIR
+#  ¡No uses el .env de la raíz del repositorio (es el de desarrollo)! Pasa siempre --env-file:
+#    docker compose --env-file /etc/reposteria/compose.env -f docker-compose.prod.yml build
+#    docker compose --env-file /etc/reposteria/compose.env -f docker-compose.prod.yml up -d
+#
+#  ── Puesta en marcha ──
+#   1. infra/postgres/gen-secrets.sh  (secretos + certificados internos + fragmentos .env)
+#   2. Certificado público en TLS_CERT_DIR (fullchain.pem, privkey.pem, chain.pem): certbot en el
+#      host con --webroot -w $ACME_WEBROOT y un deploy-hook que copie los archivos y ejecute
+#      "docker compose ... exec waf nginx -s reload".
+#   3. build + up -d. "migrate" aplica las migraciones antes de que arranque la app.
+#   4. Tras CADA migración: aplica prisma/sql/least-privilege.sql (RLS, permisos, timeouts por rol)
+#      y comprueba con "npm run db:check-security" (ver infra/postgres/README.md).
+#
+#  ── Disponibilidad ──
+#  Un único host Docker NO alcanza por sí solo el 99,95 % (cualquier reinicio del servidor o de
+#  Docker es una caída). Este archivo da redundancia de PROCESO (3 réplicas, reinicio automático,
+#  healthchecks); para el objetivo hacen falta al menos 2 hosts con balanceador o failover,
+#  réplica de PostgreSQL en otro host y pruebas periódicas de restauración.
+#  "docker compose up -d" recrea todas las réplicas a la vez al cambiar la imagen: para
+#  despliegues sin corte usa un despliegue gradual (p. ej. "docker rollout app" o escalar a 6,
+#  esperar a healthy y volver a 3).
+#
+#  ESTADO: validado con "docker compose config"; plantilla no probada en este entorno con un
+#  demonio Docker real (ver resumen de validación en infra/postgres/README.md).
+# ════════════════════════════════════════════════════════════════════
+name: reposteria
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+# Endurecimiento común: sin capacidades, sin escalada de privilegios
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  # ─────────────────────────── Borde: TLS + WAF ───────────────────────────
+  waf:
+    <<: [*logging, *hardening]
+    image: owasp/modsecurity-crs:4-nginx-alpine
+    restart: unless-stopped
+    # La imagen ya usa un usuario sin privilegios (nginx, uid 101) y puertos 8080/8443.
+    # No es read_only: su entrypoint genera la configuración en /etc/nginx y /etc/modsecurity.d.
+    ports:
+      - "80:8080"
+      - "443:8443"
+    environment:
+      SERVER_NAME: ${SERVER_NAME:?Define SERVER_NAME (dominio canónico)}
+      TZ: UTC
+      # Variables de la imagen (no se usan en nuestras plantillas, pero sí en sus scripts)
+      PORT: "8080"
+      SSL_PORT: "8443"
+      # ── OWASP CRS v4 (se escriben en crs-setup.conf al arrancar) ──
+      BLOCKING_PARANOIA: "1"
+      DETECTION_PARANOIA: "1"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+      ALLOWED_METHODS: "GET HEAD POST PUT PATCH DELETE OPTIONS"
+      ALLOWED_REQUEST_CONTENT_TYPE: "|application/x-www-form-urlencoded| |multipart/form-data| |application/json| |application/csp-report| |application/reports+json|"
+      # ── ModSecurity ──
+      MODSEC_RULE_ENGINE: "On"
+      MODSEC_REQ_BODY_ACCESS: "On"
+      MODSEC_REQ_BODY_LIMIT: "13107200"          # 12,5 MB ≥ client_max_body_size 12m
+      MODSEC_REQ_BODY_NOFILES_LIMIT: "1048576"   # 1 MB sin ficheros (JSON, formularios)
+      MODSEC_REQ_BODY_LIMIT_ACTION: "Reject"
+      MODSEC_REQ_BODY_JSON_DEPTH_LIMIT: "512"
+      MODSEC_ARGUMENTS_LIMIT: "1000"
+      # Respuestas sin inspeccionar: el App Router transmite HTML/RSC en streaming y los
+      # datos personales de las respuestas no deben copiarse al log de auditoría.
+      MODSEC_RESP_BODY_ACCESS: "Off"
+      # Log de auditoría en JSON por stdout, SIN cuerpos ni cabeceras de petición (cookies,
+      # Authorization): A (cabecera), F (cabeceras de respuesta), H (reglas), Z (fin).
+      MODSEC_AUDIT_ENGINE: "RelevantOnly"
+      MODSEC_AUDIT_LOG: "/dev/stdout"
+      MODSEC_AUDIT_LOG_FORMAT: "JSON"
+      MODSEC_AUDIT_LOG_TYPE: "Serial"
+      MODSEC_AUDIT_LOG_PARTS: "AFHZ"
+      MODSEC_AUDIT_LOG_RELEVANT_STATUS: "^(?:5|4(?!04))"
+      # DNS de Docker (las plantillas de la imagen lo usan; nuestro nginx.conf ya lo fija)
+      RESOLVERS: "127.0.0.11"
+    volumes:
+      # Configuración de este repositorio (todas de solo lectura). Las *.template las procesa
+      # envsubst al arrancar (solo ${SERVER_NAME}; las variables de nginx van en minúsculas).
+      - ./infra/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./infra/nginx/conf.d/reposteria.conf.template:/etc/nginx/templates/conf.d/default.conf.template:ro
+      - ./infra/nginx/conf.d/logging.conf:/etc/nginx/templates/conf.d/logging.conf.template:ro
+      - ./infra/nginx/modsecurity/modsecurity.conf:/etc/nginx/templates/conf.d/modsecurity.conf.template:ro
+      - ./infra/nginx/snippets:/etc/nginx/snippets:ro
+      - ./infra/nginx/modules-enabled:/etc/nginx/modules-enabled:ro
+      - ./infra/nginx/modsecurity/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:ro
+      - ./infra/nginx/modsecurity/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:ro
+      # Certificado público (fullchain.pem, privkey.pem, chain.pem) y desafíos ACME
+      - ${TLS_CERT_DIR:-/etc/reposteria/tls}:/etc/nginx/tls:ro
+      - ${ACME_WEBROOT:-/var/www/acme}:/var/www/acme:ro
+    networks:
+      - edge
+      - app
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      # /healthz en el servidor HTTP interno, solo desde 127.0.0.1 (sin depender del SNI/TLS)
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    stop_grace_period: 30s
+
+  # ───────────────────────────── Aplicación ─────────────────────────────
+  app:
+    <<: [*logging, *hardening]
+    image: ${APP_IMAGE:-reposteria/app}:${APP_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?Define NEXT_PUBLIC_SITE_URL (https://...)}
+        SUPABASE_URL: ${SUPABASE_URL:-}
+        VERSION: ${APP_VERSION:-0.0.0-dev}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "10001:10001"
+    env_file:
+      - path: ${APP_ENV_FILE:-/etc/reposteria/.env.production}
+        required: true
+    # Lo propio de esta topología (prevalece sobre el env_file)
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      TRUST_PROXY: nginx               # IP real en X-Real-IP, fijada por el WAF ($remote_addr)
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      UPLOAD_DIR: /app/uploads
+      NODE_OPTIONS: --max-old-space-size=640
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+      # Caché de imágenes optimizadas e ISR (efímera por réplica)
+      - /app/.next/cache:size=512m,mode=1777,nosuid,nodev
+    volumes:
+      # Solo con STORAGE_DRIVER=local: volumen compartido por las 3 réplicas. Recomendado
+      # STORAGE_DRIVER=supabase (u otro almacenamiento de objetos) para no depender del disco local;
+      # si usas local, inclúyelo en tus copias (fotos de referencia = datos personales).
+      - uploads:/app/uploads
+    networks:
+      - app
+      - data
+      - egress
+    expose:
+      - "3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Vida (sin BD). La disponibilidad completa (BD + Redis) es /api/health/ready (monitorización).
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768m
+        reservations:
+          memory: 256m
+    stop_grace_period: 30s
+
+  # ─────────────────── Migraciones (una ejecución por despliegue) ───────────────────
+  migrate:
+    <<: [*logging, *hardening]
+    image: ${MIGRATE_IMAGE:-reposteria/migrate}:${APP_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrate
+      args:
+        VERSION: ${APP_VERSION:-0.0.0-dev}
+    restart: "no"
+    read_only: true
+    user: "10001:10001"
+    # DATABASE_URL y DIRECT_URL del rol PROPIETARIO, directos a postgres:5432 con sslmode=require
+    # (Prisma usa DIRECT_URL para migrar; PgBouncer en modo transacción no sirve para DDL).
+    env_file:
+      - path: ${MIGRATE_ENV_FILE:-/etc/reposteria/secrets/migrate.env}
+        required: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,nosuid,nodev
+    command: ["migrate", "deploy"]
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ───────────────────────── Tareas programadas ─────────────────────────
+  scheduler:
+    <<: [*logging, *hardening]
+    image: ${SCHEDULER_IMAGE:-reposteria/scheduler}:${APP_VERSION:-latest}
+    build:
+      context: ./infra/scheduler
+    restart: unless-stopped
+    read_only: true
+    # supercronic como "scheduler" (uid 10004), sin ninguna capacidad (ver infra/scheduler/Dockerfile)
+    user: "10004:10004"
+    environment:
+      SCHEDULER_TARGET_URL: http://app:3000
+      TZ: UTC
+    secrets:
+      - cron_secret
+    tmpfs:
+      # Bloqueos flock de run-job.sh. (Sin tmpfs en /run: no debe tapar /run/secrets.)
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
+    networks:
+      - app
+    depends_on:
+      app:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64m
+
+  # ─────────────────────────────── PgBouncer ───────────────────────────────
+  pgbouncer:
+    <<: [*logging, *hardening]
+    image: ${PGBOUNCER_IMAGE:-reposteria/pgbouncer}:${APP_VERSION:-latest}
+    build:
+      context: ./infra/pgbouncer
+    restart: unless-stopped
+    read_only: true
+    user: "10002:10002"
+    secrets:
+      - postgres_app_password
+      - pgbouncer_tls_cert
+      - pgbouncer_tls_key
+    tmpfs:
+      - /run/pgbouncer:size=1m,mode=1777,noexec,nosuid,nodev
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
+    networks:
+      data:
+        # IP fija: pg_hba.conf solo admite al rol de la app desde aquí
+        ipv4_address: 172.30.20.10
+    expose:
+      - "6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "6432"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+
+  # ─────────────────────────────── PostgreSQL ───────────────────────────────
+  postgres:
+    <<: [*logging, *hardening]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    read_only: true
+    # El entrypoint arranca como root para preparar TLS y directorios y cede a "postgres"
+    # (uid 70) con su-exec. Capacidades estrictamente necesarias para eso:
+    cap_add:
+      - CHOWN          # propietario de PGDATA, TLS y archivo WAL
+      - DAC_OVERRIDE   # el entrypoint recorre PGDATA (0700, de postgres) como root
+      - FOWNER         # chmod sobre PGDATA
+      - SETUID         # su-exec → postgres
+      - SETGID
+    entrypoint: ["/usr/local/bin/reposteria-entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      # Sumas de comprobación de páginas (detecta corrupción en disco) y orden alfabético español
+      POSTGRES_INITDB_ARGS: --auth-local=peer --auth-host=scram-sha-256 --data-checksums --encoding=UTF8 --locale=C.UTF-8 --locale-provider=icu --icu-locale=es-ES
+      TZ: UTC
+    secrets:
+      - postgres_superuser_password
+      - postgres_owner_password
+      - postgres_app_password
+      - postgres_backup_password
+      - postgres_monitoring_password
+      - postgres_tls_cert
+      - postgres_tls_key
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pg-wal-archive:/var/lib/postgresql/wal-archive
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./infra/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./infra/postgres/entrypoint.sh:/usr/local/bin/reposteria-entrypoint.sh:ro
+      - ./infra/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/run/postgresql:size=1m,mode=1777,nosuid,nodev
+      - /var/lib/postgresql/tls:size=1m,mode=0700,noexec,nosuid,nodev
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    # Sin "ports": PostgreSQL no se publica en el host. Para administrar:
+    #   docker compose ... exec postgres psql -U postgres -d reposteria
+    networks:
+      data:
+        ipv4_address: 172.30.20.20
+    shm_size: 256m
+    healthcheck:
+      # Por TCP y no por socket: durante la PRIMERA inicialización el entrypoint arranca un servidor
+      # temporal solo por socket mientras ejecuta initdb/10-roles.sh; por TCP no responde hasta el
+      # arranque definitivo, así "migrate" no empieza antes de que existan los roles y la BD.
+      # pg_isready no se autentica: el rechazo de pg_hba (127.0.0.1 no está permitido) cuenta como
+      # "acepta conexiones" (comprobado). Efecto secundario: una línea de conexión rechazada en el
+      # log cada 10 s.
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-p", "5432", "-U", "postgres", "-d", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4g
+    stop_grace_period: 60s
+
+  # ───────────────────────────────── Redis ─────────────────────────────────
+  redis:
+    <<: [*logging, *hardening]
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    read_only: true
+    user: "999:1000"                   # usuario "redis" de la imagen Alpine
+    entrypoint: ["/bin/sh", "/usr/local/etc/redis/entrypoint.sh"]
+    secrets:
+      - redis_password
+      - redis_exporter_password
+    volumes:
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./infra/redis/entrypoint.sh:/usr/local/etc/redis/entrypoint.sh:ro
+    tmpfs:
+      # Sin persistencia: /data solo contiene el aclfile generado al arrancar
+      - /data:size=1m,mode=1777,noexec,nosuid,nodev
+    networks:
+      - data
+    expose:
+      - "6379"
+    healthcheck:
+      # PING sin autenticar responde NOAUTH: basta para saber que el servidor está vivo sin
+      # exponer la contraseña en el healthcheck.
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 6379 PING 2>&1 | grep -Eq 'PONG|NOAUTH'"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 320m                 # maxmemory 256mb + margen
+
+  # ─────────────────────────── Copias de seguridad ───────────────────────────
+  backup:
+    <<: [*logging, *hardening]
+    image: ${BACKUP_IMAGE:-reposteria/backup}:${APP_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: infra/postgres/backup/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    # supercronic y las tareas como "postgres" (uid 70), sin ninguna capacidad
+    user: "70:70"
+    environment:
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:?Define BACKUP_AGE_RECIPIENT (clave pública age1...)}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-35}
+      BACKUP_PGHOST: postgres
+      BACKUP_PGDATABASE: reposteria
+      BACKUP_PGUSER: reposteria_backup
+      BACKUP_PGSSLMODE: require
+      TEXTFILE_DIR: /textfile
+      TZ: UTC
+    secrets:
+      - postgres_backup_password
+    volumes:
+      # Destino de las copias cifradas. Pon este volumen en OTRO disco y sincronízalo fuera del
+      # servidor (restic/rclone); para usar una ruta del host, cámbialo por un bind mount propiedad
+      # del uid 70.
+      - backups:/backups
+      # Segmentos WAL que deja postgres (archive_command); wal-ship.sh los cifra y los retira
+      - pg-wal-archive:/wal-archive
+      # Métricas para node_exporter (alertas de copia antigua o fallida); uid 70 debe poder escribir
+      - ${NODE_EXPORTER_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}:/textfile
+    tmpfs:
+      # Bloqueos flock y configuración no secreta que escribe el entrypoint (/tmp/backup/env)
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
+networks:
+  edge:
+    name: reposteria_edge
+  app:
+    name: reposteria_app
+    internal: true
+  data:
+    name: reposteria_data
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24
+  egress:
+    name: reposteria_egress
+
+volumes:
+  pgdata:
+    name: reposteria_pgdata
+  pg-wal-archive:
+    name: reposteria_pg_wal_archive
+  backups:
+    name: reposteria_backups
+  uploads:
+    name: reposteria_uploads
+
+secrets:
+  postgres_superuser_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_superuser_password
+  postgres_owner_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_owner_password
+  postgres_app_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_app_password
+  postgres_backup_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_backup_password
+  postgres_monitoring_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_monitoring_password
+  postgres_tls_cert:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_tls_cert
+  postgres_tls_key:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/postgres_tls_key
+  pgbouncer_tls_cert:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/pgbouncer_tls_cert
+  pgbouncer_tls_key:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/pgbouncer_tls_key
+  redis_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/redis_password
+  redis_exporter_password:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/redis_exporter_password
+  cron_secret:
+    file: ${SECRETS_DIR:-/etc/reposteria/secrets}/cron_secret

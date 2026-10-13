@@ -1,4 +1,6 @@
+import http from "node:http";
 import { checkEnvironment } from "@/lib/env";
+import { instrumentHttpServer } from "@/lib/http-metrics";
 import { log } from "@/lib/logger";
 import { inc, registerGauge } from "@/lib/metrics";
 import { jobStats } from "@/lib/jobs";
@@ -12,6 +14,7 @@ export function startup() {
     for (const e of errors) log.error("config.error", { message: e });
     throw new Error(`Configuración insegura o incompleta: ${errors.join(" · ")}`);
   }
+  instrumentHttpServer(http.Server.prototype);
   registerGauge("jobs_pending", async () => (await jobStats()).pending, "Trabajos en cola");
   registerGauge("jobs_failed", async () => (await jobStats()).failed, "Trabajos fallidos definitivamente");
   registerGauge("jobs_oldest_pending_seconds", async () => (await jobStats()).oldestPendingSec, "Antigüedad del trabajo pendiente más antiguo");

@@ -21,3 +21,5 @@ next-env.d.ts
 *.log
 .vercel
 coverage
+loadtest/k6/catalog.json
+k6-*.json

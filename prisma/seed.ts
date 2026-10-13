@@ -31,13 +31,13 @@ async function seedAdmin() {
   if (problem) throw new Error(`ADMIN_PASSWORD no es válida: ${problem}`);
   const exists = await db.adminUser.findUnique({ where: { email } });
   if (exists) {
-    console.log(`✔ Administrador ${email} ya existe (no se cambia su contraseña)`);
+    console.log(`✔ El administrador de ADMIN_EMAIL ya existe (no se cambia su contraseña)`);
     return;
   }
   await db.adminUser.create({
     data: { email, name: "Administración", role: "OWNER", passwordHash: await hashPassword(password) },
   });
-  console.log(`✔ Propietario creado: ${email} (en el primer acceso deberá activar la verificación en dos pasos)`);
+  console.log(`✔ Propietario creado para ADMIN_EMAIL (en el primer acceso deberá activar la verificación en dos pasos)`);
 }
 
 async function seedSettings() {

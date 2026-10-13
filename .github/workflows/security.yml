@@ -1,0 +1,476 @@
+# ════════════════════════════════════════════════════════════════════
+#  Seguridad: SAST, dependencias, secretos, contenedor/IaC y DAST.
+#
+#  Se ejecuta en cada PR, en cada push a main, semanalmente (para detectar CVE nuevas en
+#  código que no cambia) y a mano. deploy.yml exige que este workflow termine en "success"
+#  para el mismo SHA antes de desplegar.
+#
+#  Política de fallo:
+#    - CodeQL (security-extended) ......... informa en Code scanning; las alertas se gestionan
+#                                           con la protección de rama "Code scanning results".
+#    - Semgrep ............................ falla con hallazgos de severidad ERROR.
+#    - npm audit --omit=dev ............... falla con vulnerabilidades HIGH/CRITICAL en producción.
+#    - OSV-Scanner (package-lock.json) .... falla con vulnerabilidades conocidas (osv-scanner.toml
+#                                           documenta las excepciones con fecha de caducidad).
+#    - Gitleaks (historial completo) ...... falla con cualquier secreto.
+#    - Trivy fs / config / imagen ......... falla con CRITICAL/HIGH que tengan arreglo
+#                                           (ignore-unfixed); excepciones en .trivyignore.
+#    - OWASP ZAP baseline ................. falla con reglas marcadas FAIL en .zap/rules.tsv.
+#  Todos los informes SARIF se suben a GitHub → Security → Code scanning.
+#
+#  PR desde forks: GitHub no concede security-events: write, así que la subida de SARIF se
+#  omite (los análisis se ejecutan y fallan igual).
+#
+#  Acciones de terceros fijadas por SHA de commit completo (el comentario indica la versión).
+#  Las etiquetas se pueden mover (incidente tj-actions/changed-files, marzo de 2025); un SHA no.
+# ════════════════════════════════════════════════════════════════════
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Lunes 03:17 UTC (minuto no redondo para no coincidir con el pico de colas de GitHub)
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "22"
+  NEXT_TELEMETRY_DISABLED: "1"
+  CHECKPOINT_DISABLE: "1"
+  PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  NPM_CONFIG_FUND: "false"
+  CI_POSTGRES_PASSWORD: postgres_ci_only
+  # Versiones de herramientas ejecutadas como contenedor (Dependabot "docker" no las ve:
+  # actualízalas a mano revisando las notas de versión).
+  SEMGREP_IMAGE: semgrep/semgrep:1.180.0
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1
+  TRIVY_VERSION: v0.70.0
+  # SARIF solo se puede subir si el token tiene security-events: write (no en PR de forks)
+  CAN_UPLOAD_SARIF: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+jobs:
+  # ───────────────────────────── SAST ─────────────────────────────
+  codeql:
+    name: CodeQL (javascript-typescript, security-extended)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - node_modules
+              - .next
+              - .semgrep
+              - public
+
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: /language:javascript-typescript
+
+  semgrep:
+    name: Semgrep (registro + reglas propias)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Semgrep scan
+        # Imagen oficial en lugar de "semgrep ci" (no requiere cuenta ni token de Semgrep AppSec).
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src "$SEMGREP_IMAGE" \
+            semgrep scan \
+              --metrics=off --disable-version-check \
+              --config p/default \
+              --config p/owasp-top-ten \
+              --config p/typescript \
+              --config p/react \
+              --config p/nextjs \
+              --config p/secrets \
+              --config p/jwt \
+              --config .semgrep/rules.yml \
+              --exclude .semgrep \
+              --exclude node_modules \
+              --exclude .next \
+              --exclude public \
+              --sarif-output=semgrep.sarif \
+              --json-output=semgrep.json \
+              --text
+          # Rompe el CI solo con hallazgos de severidad ERROR (los WARNING quedan en Code scanning)
+          python3 - <<'PY'
+          import json, sys
+          data = json.load(open("semgrep.json"))
+          blocking = [r for r in data.get("results", []) if r["extra"].get("severity") == "ERROR"]
+          for r in blocking:
+              print(f"::error file={r['path']},line={r['start']['line']}::{r['check_id']}: {r['extra']['message'][:300]}")
+          print(f"Semgrep: {len(data.get('results', []))} hallazgos, {len(blocking)} bloqueantes (ERROR)")
+          sys.exit(1 if blocking else 0)
+          PY
+
+      - name: Subir SARIF de Semgrep
+        if: always() && env.CAN_UPLOAD_SARIF == 'true' && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # ───────────────────────── Dependencias ─────────────────────────
+  npm-audit:
+    name: npm audit (producción, HIGH+)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: npm audit --omit=dev --audit-level=high
+        # Solo lee package-lock.json (no instala ni ejecuta scripts de paquetes)
+        run: npm audit --omit=dev --audit-level=high
+
+  osv-scanner:
+    name: OSV-Scanner (package-lock.json)
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    # Flujo reutilizable oficial (recomendado por Google frente a la acción directa)
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=package-lock.json
+        --config=osv-scanner.toml
+      upload-sarif: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      fail-on-vuln: true
+
+  # ─────────────────────────── Secretos ───────────────────────────
+  gitleaks:
+    name: Gitleaks (historial completo)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Gitleaks git (todas las ramas y commits descargados)
+        # Binario oficial en contenedor: gitleaks-action exige licencia para organizaciones.
+        # safe.directory: el repositorio montado pertenece a otro uid dentro del contenedor.
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" git /repo \
+              --config /repo/.gitleaks.toml \
+              --redact \
+              --no-banner \
+              --exit-code 1 \
+              --report-format sarif \
+              --report-path /repo/gitleaks.sarif
+
+      - name: Subir SARIF de Gitleaks
+        if: always() && env.CAN_UPLOAD_SARIF == 'true' && hashFiles('gitleaks.sarif') != ''
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  # ─────────────────────── Trivy: repositorio ───────────────────────
+  trivy-fs:
+    name: Trivy filesystem (vuln, secret, misconfig)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Trivy fs
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+          skip-dirs: node_modules,.next,.semgrep,uploads
+          format: sarif
+          output: trivy-fs.sarif
+          limit-severities-for-sarif: true
+
+      - name: Subir SARIF de Trivy fs
+        if: always() && env.CAN_UPLOAD_SARIF == 'true' && hashFiles('trivy-fs.sarif') != ''
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  trivy-iac:
+    name: Trivy IaC (Dockerfile, compose, Kubernetes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reunir la IaC (Kustomize renderizado, Dockerfile, Compose)
+        run: |
+          set -euo pipefail
+          IAC="$RUNNER_TEMP/iac"
+          mkdir -p "$IAC/k8s"
+          # Se analizan los manifiestos FINALES (con namespace, etiquetas e imágenes de Kustomize);
+          # si kubectl no está disponible se analizan los archivos tal cual.
+          if [ -f infra/k8s/kustomization.yaml ]; then
+            if command -v kubectl >/dev/null 2>&1 && kubectl kustomize infra/k8s > "$IAC/k8s/rendered.yaml"; then
+              echo "Kustomize renderizado: $(grep -c '^kind:' "$IAC/k8s/rendered.yaml") objetos"
+            else
+              cp infra/k8s/*.yaml "$IAC/k8s/"
+            fi
+            # Opcionales (CRDs de Prometheus Operator / Cilium) también se revisan
+            [ -d infra/k8s/optional ] && cp -r infra/k8s/optional "$IAC/k8s/optional"
+          fi
+          cp Dockerfile "$IAC/Dockerfile"
+          # Trivy no tiene comprobaciones específicas de Docker Compose; se incluyen igualmente
+          # para que el escáner de secretos los revise. Sus opciones de seguridad (read_only,
+          # cap_drop, no-new-privileges...) se validan en la revisión de infraestructura.
+          for f in docker-compose.prod.yml docker-compose.yml; do
+            if [ -f "$f" ]; then cp "$f" "$IAC/$f"; fi
+          done
+          find "$IAC" -type f | sort
+
+      - name: Trivy config (IaC)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: config
+          scan-ref: ${{ runner.temp }}/iac
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          trivyignores: .trivyignore
+          format: sarif
+          output: trivy-iac.sarif
+          limit-severities-for-sarif: true
+
+      - name: Subir SARIF de Trivy IaC
+        if: always() && env.CAN_UPLOAD_SARIF == 'true' && hashFiles('trivy-iac.sarif') != ''
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-iac.sarif
+          category: trivy-iac
+
+  # ───────────────────── Trivy: imagen de contenedor ─────────────────────
+  trivy-image:
+    name: Trivy imagen (Dockerfile → runtime)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    services:
+      # "next build" prerenderiza páginas que consultan la BD: se compila contra una BD
+      # efímera migrada, pasada como secreto de BuildKit (no queda en la imagen).
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_only # = env.CI_POSTGRES_PASSWORD
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias (solo para migrar la BD de compilación)
+        run: npm ci
+
+      - name: BD efímera para la compilación
+        uses: ./.github/actions/prepare-test-env
+        with:
+          postgres-password: ${{ env.CI_POSTGRES_PASSWORD }}
+          redis-url: ""
+
+      - name: Construir la imagen (destino runtime)
+        env:
+          BUILD_DATABASE_URL: ${{ env.DATABASE_URL }}
+          DOCKER_BUILDKIT: "1"
+        run: |
+          set -euo pipefail
+          # --network host: el contenedor de compilación alcanza el postgres de servicio en localhost
+          docker build \
+            --network host \
+            --target runtime \
+            --build-arg NEXT_PUBLIC_SITE_URL=https://ci.example.invalid \
+            --build-arg VERSION=ci \
+            --build-arg REVISION="$GITHUB_SHA" \
+            --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg SOURCE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --secret id=build_database_url,env=BUILD_DATABASE_URL \
+            -t "reposteria/app:ci-${GITHUB_SHA}" .
+          docker image inspect "reposteria/app:ci-${GITHUB_SHA}" --format 'Usuario: {{.Config.User}} · Tamaño: {{.Size}} bytes'
+          # La imagen no debe ejecutarse como root
+          user="$(docker image inspect "reposteria/app:ci-${GITHUB_SHA}" --format '{{.Config.User}}')"
+          case "$user" in ""|root|0|0:0|root:root) echo "::error::La imagen se ejecuta como root ($user)"; exit 1 ;; esac
+
+      - name: Trivy imagen
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: image
+          image-ref: reposteria/app:ci-${{ github.sha }}
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+          format: sarif
+          output: trivy-image.sarif
+          limit-severities-for-sarif: true
+
+      - name: Subir SARIF de Trivy imagen
+        if: always() && env.CAN_UPLOAD_SARIF == 'true' && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+  # ───────────────────────────── DAST ─────────────────────────────
+  zap-baseline:
+    name: OWASP ZAP baseline (app efímera en el propio job)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_only # = env.CI_POSTGRES_PASSWORD
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Entorno de pruebas efímero (objetivo autorizado del escaneo)
+        uses: ./.github/actions/prepare-test-env
+        with:
+          postgres-password: ${{ env.CI_POSTGRES_PASSWORD }}
+
+      - name: Build de producción
+        run: npm run build
+
+      - name: Arrancar la app
+        env:
+          # La araña de ZAP hace cientos de peticiones: se relajan los límites SOLO en este
+          # entorno efímero (APP_ENV=staging; en producción la app ignora el multiplicador).
+          RATE_LIMIT_MULTIPLIER: "50"
+        run: bash .github/scripts/start-app.sh 3000
+
+      - name: ZAP baseline (pasivo; solo localhost)
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: http://localhost:3000
+          rules_file_name: .zap/rules.tsv
+          # -a: incluye reglas pasivas alfa · -I: los WARN no rompen (solo las reglas FAIL)
+          # -m 5: araña tradicional durante 5 minutos como máximo. El escaneo baseline es
+          # PASIVO (no envía ataques) y solo recorre el dominio objetivo (localhost).
+          cmd_options: -a -I -m 5
+          fail_action: true
+          allow_issue_writing: false
+          artifact_name: zap-baseline-report
+
+      - name: Detener la app
+        if: always()
+        run: bash .github/scripts/stop-app.sh
+
+      - name: Registro de la app (solo si falla)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-log-zap
+          path: ${{ runner.temp }}/app.log
+          retention-days: 7
+          if-no-files-found: ignore

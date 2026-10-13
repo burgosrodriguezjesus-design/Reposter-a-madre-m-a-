@@ -118,7 +118,7 @@ SecResponseBodyAccess Off
 SecTmpDir $WORK/modsec/tmp
 SecDataDir $WORK/modsec/data
 SecAuditEngine RelevantOnly
-SecAuditLogRelevantStatus "^5"
+SecAuditLogRelevantStatus "^(?:5|4(?!04))"
 SecAuditLogParts AFHZ
 SecAuditLogType Serial
 SecAuditLogFormat JSON

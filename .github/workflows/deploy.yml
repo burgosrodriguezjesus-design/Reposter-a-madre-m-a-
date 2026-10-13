@@ -1,0 +1,351 @@
+# ════════════════════════════════════════════════════════════════════
+#  Despliegue: main → staging → (aprobación manual) → producción en Vercel.
+#
+#  ── Por qué workflow_run (y no un workflow combinado con needs) ──
+#  Opción elegida: este workflow se dispara cuando termina "CI" o "Security" (workflow_run) y un
+#  job "gate" comprueba en la API de GitHub que AMBOS han terminado en "success" para el MISMO
+#  SHA de un push a main. Ventajas frente a un workflow combinado (workflow_call + needs):
+#    - CI y Security siguen siendo workflows independientes que se usan como checks
+#      obligatorios de la protección de rama, sin ejecutarse dos veces en cada push a main;
+#    - workflow_run siempre usa la definición de deploy.yml de la rama por defecto: una PR no
+#      puede modificar este workflow para desplegar ni para leer los secretos de producción;
+#    - se despliega exactamente el SHA verificado (head_sha), no "lo último de main".
+#  Inconveniente asumido: workflow_run se dispara dos veces (una por workflow). El gate deja
+#  pasar solo cuando los dos han terminado; si coinciden, la concurrencia "deploy-production"
+#  las serializa y la segunda ve que ese SHA ya está desplegado y no hace nada. Si entre tanto
+#  hay un commit más reciente en main, tampoco despliega (lo hará la ejecución de ese commit).
+#
+#  ── Requisitos en GitHub (Settings → Environments) ──
+#    staging     secretos: DIRECT_URL, VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+#                opcionales: ADMIN_DATABASE_URL (reaplica least-privilege.sql), VERCEL_AUTOMATION_BYPASS_SECRET
+#                variables: VERCEL_STAGING_TARGET (preview | nombre de un Custom Environment, p. ej. staging),
+#                           STAGING_DAST=true para lanzar npm run test:security contra staging
+#    production  revisores obligatorios (aprobación manual) + "Deployment branches: main"
+#                secretos: DIRECT_URL, VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+#                opcionales: ADMIN_DATABASE_URL, VERCEL_AUTOMATION_BYPASS_SECRET, ALERT_WEBHOOK_URL
+#                variables: PRODUCTION_URL (https://www.tudominio.es)
+#  VERCEL_TOKEN debe ser un token con alcance limitado al equipo/proyecto y caducidad.
+#
+#  ── Requisitos en Vercel ──
+#  Desactiva el despliegue automático de la integración Git para main (si no, Vercel
+#  desplegaría sin pasar por CI/Security): vercel.json → "git": {"deploymentEnabled": {"main": false}}
+#  o Project Settings → Git → Ignored Build Step. Los secretos de la app viven en Vercel
+#  (Environment Variables): el build se hace en Vercel y este workflow nunca los descarga.
+#  Nota: el script "vercel-build" del proyecto también ejecuta "prisma migrate deploy"; con las
+#  migraciones aplicadas aquí antes, allí no hay nada pendiente (no-op).
+#
+#  ── Migraciones y rollback ──
+#  Las migraciones se aplican ANTES de desplegar, con DIRECT_URL (conexión directa, sin
+#  PgBouncer). "vercel rollback" revierte el código, NO el esquema: las migraciones deben ser
+#  compatibles hacia atrás (expand → migrate → contract en despliegues distintos).
+#
+#  PLANTILLA NO PROBADA EN ESTE ENTORNO (sin cuenta de Vercel ni GitHub Actions): valida el
+#  primer despliegue en staging y un rollback de prueba antes de depender de él.
+# ════════════════════════════════════════════════════════════════════
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI", "Security"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Volver a desplegar aunque este SHA ya esté en producción"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Nunca dos despliegues a la vez; tampoco se cancela uno en curso (podría quedar a medias).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  # Versión fijada (publicada hace más de dos semanas); actualízala a mano revisando el changelog
+  VERCEL_CLI_VERSION: "60.1.3"
+  NEXT_TELEMETRY_DISABLED: "1"
+  CHECKPOINT_DISABLE: "1"
+  PRISMA_HIDE_UPDATE_MESSAGE: "1"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_AUDIT: "false"
+
+jobs:
+  gate:
+    name: Verificar CI + Security del mismo SHA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Solo pushes a main de este mismo repositorio (nunca PR ni forks), o ejecución manual en main
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    permissions:
+      actions: read
+      contents: read
+      deployments: read
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - name: Comprobar resultados y estado de main
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          skip() { echo "::notice::$1"; echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          for wf in ci.yml security.yml; do
+            run="$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&branch=main&event=push&per_page=1" \
+                     --jq '.workflow_runs[0] | "\(.status) \(.conclusion) \(.html_url)"' || true)"
+            read -r status conclusion url <<<"${run:-none none none}"
+            echo "$wf → status=$status conclusion=$conclusion $url"
+            [ "$status" = "completed" ] || skip "$wf aún no ha terminado para $SHA: se desplegará cuando termine."
+            [ "$conclusion" = "success" ] || skip "$wf no terminó en success ($conclusion) para $SHA: NO se despliega."
+          done
+
+          head="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+          [ "$head" = "$SHA" ] || skip "main ya está en $head (más reciente que $SHA): se desplegará ese commit."
+
+          if [ "$FORCE" != "true" ]; then
+            done_ok="$(gh api "repos/$REPO/deployments?sha=$SHA&environment=production&per_page=20" --jq '.[].statuses_url' \
+              | while read -r u; do gh api "${u#https://api.github.com/}" --jq '.[0].state // empty'; done \
+              | grep -c '^success$' || true)"
+            [ "${done_ok:-0}" -eq 0 ] || skip "$SHA ya está desplegado en producción."
+          fi
+
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+          echo "### Despliegue autorizado: \`$SHA\` (CI y Security en success)" >> "$GITHUB_STEP_SUMMARY"
+
+  staging:
+    name: Staging
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      SHA: ${{ needs.gate.outputs.sha }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      VERCEL_TARGET: ${{ vars.VERCEL_STAGING_TARGET || 'preview' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias (CLI de Prisma)
+        run: npm ci
+
+      - name: Migraciones de staging (DIRECT_URL)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          [ -n "${DIRECT_URL:-}" ] || { echo "::error::Falta el secreto DIRECT_URL en el entorno staging"; exit 1; }
+          DATABASE_URL="$DIRECT_URL" npx --no prisma migrate deploy
+
+      - name: Reaplicar mínimo privilegio y RLS (opcional)
+        env:
+          ADMIN_DATABASE_URL: ${{ secrets.ADMIN_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_DATABASE_URL:-}" ]; then
+            echo "::notice::ADMIN_DATABASE_URL no definido: no se reaplica prisma/sql/least-privilege.sql"
+            exit 0
+          fi
+          npm run --silent db:least-privilege
+
+      - name: Vercel CLI
+        run: npm install --global --no-audit --no-fund "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Desplegar en staging
+        id: deploy
+        run: |
+          set -euo pipefail
+          for v in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            [ -n "${!v:-}" ] || { echo "::error::Falta el secreto $v en el entorno staging"; exit 1; }
+          done
+          # Build remoto en Vercel con las variables del entorno de destino (los secretos no pasan por aquí)
+          url="$(vercel deploy --yes --target="$VERCEL_TARGET" --token="$VERCEL_TOKEN" \
+                  --meta gitSha="$SHA" --meta gitRef=main 2>"$RUNNER_TEMP/vercel.err")" || {
+            cat "$RUNNER_TEMP/vercel.err"; exit 1; }
+          url="$(printf '%s\n' "$url" | grep -Eo 'https://[^[:space:]]+' | tail -n 1)"
+          [ -n "$url" ] || { echo "::error::Vercel no devolvió la URL del despliegue"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Staging: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prueba de humo en staging (/api/health/ready)
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: bash .github/scripts/smoke-test.sh "$DEPLOY_URL" 20 6
+
+      - name: DAST ligero contra staging (opcional, entorno autorizado)
+        if: vars.STAGING_DAST == 'true'
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+        run: npm run test:security
+
+  production:
+    name: Producción
+    needs: [gate, staging]
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # La aprobación manual la imponen los "Required reviewers" del entorno production
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    env:
+      SHA: ${{ needs.gate.outputs.sha }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Comprobar configuración
+        run: |
+          set -euo pipefail
+          for v in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID PRODUCTION_URL; do
+            [ -n "${!v:-}" ] || { echo "::error::Falta $v en el entorno production"; exit 1; }
+          done
+          case "$PRODUCTION_URL" in https://*) ;; *) echo "::error::PRODUCTION_URL debe empezar por https://"; exit 1 ;; esac
+
+      - name: Instalar dependencias (CLI de Prisma)
+        run: npm ci
+
+      - name: Vercel CLI
+        run: npm install --global --no-audit --no-fund "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Anotar el despliegue de producción actual (destino del rollback)
+        id: previous
+        run: |
+          set -euo pipefail
+          team=""
+          case "$VERCEL_ORG_ID" in team_*) team="?teamId=$VERCEL_ORG_ID" ;; esac
+          auth=(-H "Authorization: Bearer $VERCEL_TOKEN")
+          # Despliegue que sirve ahora el dominio de producción (tiene en cuenta rollbacks previos)
+          prev="$(curl -fsS "${auth[@]}" "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID$team" \
+                   | jq -r '.targets.production.url // empty' || true)"
+          if [ -z "$prev" ]; then
+            sep="?"; [ -n "$team" ] && sep="&"
+            prev="$(curl -fsS "${auth[@]}" \
+              "https://api.vercel.com/v6/deployments${team}${sep}projectId=$VERCEL_PROJECT_ID&target=production&state=READY&limit=1" \
+              | jq -r '.deployments[0].url // empty' || true)"
+          fi
+          if [ -n "$prev" ]; then
+            echo "url=https://${prev#https://}" >> "$GITHUB_OUTPUT"
+            echo "Despliegue de producción anterior: https://${prev#https://}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::No se encontró un despliegue de producción anterior (¿primer despliegue?): no habrá rollback automático"
+          fi
+
+      - name: Migraciones de producción (DIRECT_URL)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          [ -n "${DIRECT_URL:-}" ] || { echo "::error::Falta el secreto DIRECT_URL en el entorno production"; exit 1; }
+          DATABASE_URL="$DIRECT_URL" npx --no prisma migrate deploy
+
+      - name: Reaplicar mínimo privilegio y RLS (opcional)
+        env:
+          ADMIN_DATABASE_URL: ${{ secrets.ADMIN_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_DATABASE_URL:-}" ]; then
+            echo "::notice::ADMIN_DATABASE_URL no definido: no se reaplica prisma/sql/least-privilege.sql"
+            exit 0
+          fi
+          npm run --silent db:least-privilege
+
+      - name: Desplegar en producción SIN asignar el dominio
+        id: deploy
+        run: |
+          set -euo pipefail
+          url="$(vercel deploy --prod --skip-domain --yes --token="$VERCEL_TOKEN" \
+                  --meta gitSha="$SHA" --meta gitRef=main 2>"$RUNNER_TEMP/vercel.err")" || {
+            cat "$RUNNER_TEMP/vercel.err"; exit 1; }
+          url="$(printf '%s\n' "$url" | grep -Eo 'https://[^[:space:]]+' | tail -n 1)"
+          [ -n "$url" ] || { echo "::error::Vercel no devolvió la URL del despliegue"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Nuevo despliegue (aún sin dominio): $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prueba de humo del nuevo despliegue (antes de recibir tráfico)
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: bash .github/scripts/smoke-test.sh "$DEPLOY_URL" 20 6
+
+      - name: Promocionar a producción (asignar dominios)
+        id: promote
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: vercel promote "$DEPLOY_URL" --yes --token="$VERCEL_TOKEN" --timeout=5m
+
+      - name: Prueba de humo en el dominio público
+        id: smoke
+        run: bash .github/scripts/smoke-test.sh "$PRODUCTION_URL" 20 6
+
+      - name: ROLLBACK al despliegue anterior
+        id: rollback
+        if: failure() && steps.promote.outcome != 'skipped' && steps.previous.outputs.url != ''
+        env:
+          PREVIOUS_URL: ${{ steps.previous.outputs.url }}
+        run: |
+          set -euo pipefail
+          echo "::error::La prueba de humo de producción falló: rollback a $PREVIOUS_URL"
+          vercel rollback "$PREVIOUS_URL" --yes --token="$VERCEL_TOKEN" --timeout=5m
+          bash .github/scripts/smoke-test.sh "$PRODUCTION_URL" 10 6
+          echo "Rollback a $PREVIOUS_URL completado y verificado" >> "$GITHUB_STEP_SUMMARY"
+          # Tras un rollback Vercel deja de asignar dominios automáticamente hasta el siguiente
+          # "vercel promote": el próximo despliegue correcto de este workflow lo restablece.
+
+      - name: Avisar del fallo
+        if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ROLLBACK: ${{ steps.rollback.outcome }}
+        run: |
+          set -uo pipefail
+          [ -n "${ALERT_WEBHOOK_URL:-}" ] || exit 0
+          text="Despliegue de producción FALLIDO (${SHA:0:7}). Rollback: ${ROLLBACK:-no ejecutado}. $RUN_URL"
+          payload="$(jq -cn --arg text "$text" '{text: $text}')"
+          curl -fsS -m 10 -X POST -H 'Content-Type: application/json' -d "$payload" "$ALERT_WEBHOOK_URL" || true

@@ -20,6 +20,7 @@
 #      --secret id=next_server_actions_key,env=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY \
 #      -t reposteria/app:1.4.0 .
 #    docker build --target migrate -t reposteria/migrate:1.4.0 .
+#  Con Compose: docker compose --env-file .env.compose -f docker-compose.prod.yml build
 #
 #  IMPORTANTE (variables de compilación):
 #  - NEXT_PUBLIC_SITE_URL se incrusta en el JavaScript del navegador durante "next build"
@@ -175,7 +176,11 @@ COPY --from=build --chown=root:root /app/public ./public
 COPY --from=build --chown=root:root /app/prisma ./prisma
 COPY --from=build --chown=root:root /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build --chown=root:root /app/node_modules/@prisma/client ./node_modules/@prisma/client
-RUN install -d -o 10001 -g 10001 -m 0700 /app/.next/cache
+# uploads/: STORAGE_DRIVER=local (UPLOAD_DIR por defecto = /app/uploads). En docker-compose.prod.yml
+# se monta un volumen con nombre compartido por las réplicas; al crearse vacío, Docker copia este
+# directorio con su propietario (10001), así que la app puede escribir sin ser root.
+RUN install -d -o 10001 -g 10001 -m 0700 /app/.next/cache \
+ && install -d -o 10001 -g 10001 -m 0750 /app/uploads
 
 USER 10001:10001
 EXPOSE 3000

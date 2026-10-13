@@ -1,0 +1,115 @@
+# ════════════════════════════════════════════════════════════════════
+#  Dependabot: actualizaciones de dependencias (las alertas de seguridad se activan aparte en
+#  Settings → Code security → Dependabot alerts / security updates).
+#
+#  - npm: semanal; parches agrupados en una sola PR, minor de desarrollo agrupadas. Las mayores
+#    van en PR individuales (requieren revisión: Next, Prisma y React cambian APIs).
+#  - "cooldown": espera unos días tras cada publicación antes de proponerla, para no ser de los
+#    primeros en instalar una versión comprometida (ataques a la cadena de suministro de npm).
+#    Las actualizaciones de SEGURIDAD no esperan.
+#  - github-actions: mantiene los SHA fijados en los workflows (el comentario de versión se
+#    actualiza solo).
+#  - docker / docker-compose: imagen base node:22 del Dockerfile y servicios de Compose.
+#  Toda PR de Dependabot pasa por CI + Security igual que cualquier otra.
+# ════════════════════════════════════════════════════════════════════
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Madrid
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: scope
+    labels:
+      - dependencies
+    groups:
+      parches:
+        applies-to: version-updates
+        update-types:
+          - patch
+      desarrollo-minor:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+      seguridad:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      # TypeScript está fijado en 5.9 a propósito (compatibilidad con el tooling de Next)
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Madrid
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+      - ci
+    groups:
+      acciones:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Madrid
+    cooldown:
+      default-days: 5
+    commit-message:
+      prefix: "docker"
+    labels:
+      - dependencies
+      - docker
+    ignore:
+      # La imagen base sigue la línea LTS de Node 22 (la mayor la decide el equipo)
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Madrid
+    cooldown:
+      default-days: 5
+    commit-message:
+      prefix: "docker"
+    labels:
+      - dependencies
+      - docker
+    ignore:
+      # PostgreSQL 16 es parte del contrato de la plataforma: la mayor se migra a mano (pg_upgrade)
+      - dependency-name: postgres
+        update-types:
+          - version-update:semver-major

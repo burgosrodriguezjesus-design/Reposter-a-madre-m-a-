@@ -9,7 +9,10 @@
 #  Probar en local:
 #    python3 -m venv /tmp/semgrep && /tmp/semgrep/bin/pip install semgrep
 #    /tmp/semgrep/bin/semgrep scan --metrics=off --config .semgrep/ src/
-#    /tmp/semgrep/bin/semgrep --test .semgrep/        # casos de prueba en .semgrep/tests/
+#    /tmp/semgrep/bin/semgrep --test --config .semgrep/rules.yml .semgrep/rules.ts
+#    /tmp/semgrep/bin/semgrep --test --config .semgrep/rules.yml .semgrep/rules.tsx
+#  (rules.ts / rules.tsx son casos de prueba con anotaciones "ruleid:" / "ok:"; el CI los
+#  excluye del escaneo con --exclude .semgrep)
 #
 #  Silenciar un falso positivo concreto (con justificación en la revisión):
 #    // nosemgrep: reposteria.<id-de-regla> -- motivo
@@ -28,13 +31,20 @@ rules:
       cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
       owasp: "A03:2021 - Injection"
       asvs: "V5.3.4"
+    paths:
+      exclude:
+        # Comprobador de privilegios de la BD: ejecuta a propósito DDL/DML de sondeo cuyos textos
+        # son constantes definidas en el mismo archivo (nunca datos de usuario) dentro de una
+        # transacción que siempre se deshace. Revisar si cambia la firma de denied().
+        - "/scripts/check-db-security.ts"
     patterns:
       - pattern-either:
-          - pattern: $DB.$queryRawUnsafe(...)
-          - pattern: $DB.$executeRawUnsafe(...)
-      # Una cadena literal constante no es inyectable (p. ej. scripts/check-db-security.ts)
+          - pattern: $DB.$queryRawUnsafe($SQL, ...)
+          - pattern: $DB.$executeRawUnsafe($SQL, ...)
+      # Una cadena literal constante ("...", '...' o `...` sin ${}) no es inyectable
       - pattern-not: $DB.$queryRawUnsafe("...")
       - pattern-not: $DB.$executeRawUnsafe("...")
+      - pattern-not-regex: \$(?:query|execute)RawUnsafe\(\s*`[^`$]*`\s*\)
 
   # ───────────────────────── XSS por HTML crudo ─────────────────────────
   - id: reposteria.dangerously-set-inner-html
@@ -50,11 +60,11 @@ rules:
       asvs: "V5.3.3"
     paths:
       exclude:
-        - "src/components/site/JsonLd.tsx"
+        - "/src/components/site/JsonLd.tsx"
     pattern-either:
       - pattern: <$EL dangerouslySetInnerHTML={$X} />
       - pattern: "{dangerouslySetInnerHTML: $X}"
-      - pattern: React.createElement($EL, {dangerouslySetInnerHTML: $X}, ...)
+      - pattern: "React.createElement($EL, {dangerouslySetInnerHTML: $X}, ...)"
       - pattern: $EL.innerHTML = $X
       - pattern: $EL.outerHTML = $X
       - pattern: $EL.insertAdjacentHTML(...)
@@ -74,10 +84,10 @@ rules:
       asvs: "V4.1.1"
     paths:
       include:
-        - "src/app/admin/**"
+        - "/src/app/admin/**"
       exclude:
         # El inicio de sesión es, por definición, anterior a la autenticación
-        - "src/app/admin/login/**"
+        - "/src/app/admin/login/**"
     patterns:
       - pattern-inside: |
           "use server";
@@ -125,17 +135,25 @@ rules:
       exclude:
         - "**/*.test.ts"
         - "**/*.spec.ts"
-        - "tests/**"
+        - "/tests/**"
     patterns:
-      - pattern: console.$M(..., $V, ...)
+      - pattern-either:
+          # Identificadores, accesos a propiedades u objetos {email} como argumento.
+          # Las cadenas literales ("Email enviado") no cuentan.
+          - patterns:
+              - pattern: console.$M(..., $V, ...)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: (?is)^(?:[\w$.?\[\]]*(?:e[-_]?mail|phone|tel[eé]fono|telefono|movil|m[oó]vil|mobile)\w*|\{.*\b(?:e[-_]?mail|phone|tel[eé]fono|telefono|mobile)\w*\b.*\})$
+          # Plantillas: console.log(`enviado a ${cliente.email}`)
+          - patterns:
+              - pattern: console.$M(..., `...${$W}...`, ...)
+              - metavariable-regex:
+                  metavariable: $W
+                  regex: (?is)^(?:[\w$.?\[\]]*(?:e[-_]?mail|phone|tel[eé]fono|telefono|movil|m[oó]vil|mobile)\w*|\{.*\b(?:e[-_]?mail|phone|tel[eé]fono|telefono|mobile)\w*\b.*\})$
       - metavariable-regex:
           metavariable: $M
           regex: ^(log|info|warn|error|debug|trace|dir|table)$
-      # Identificadores, accesos a propiedades, objetos {email} o plantillas con ${email}.
-      # Las cadenas literales ("Email enviado") no cuentan.
-      - metavariable-regex:
-          metavariable: $V
-          regex: (?is)^(?:[A-Za-z_$][\w$.?\[\]]*(?:e[-_]?mail|phone|tel[eé]fono|telefono|movil|m[oó]vil|mobile)\w*|\{.*\b(?:e[-_]?mail|phone|tel[eé]fono|telefono|mobile)\w*\b.*\}|`.*\$\{[^}]*(?:e[-_]?mail|phone|tel[eé]fono|telefono|mobile)[^}]*\}.*`)$
 
   # ───────────────────── Aleatoriedad no criptográfica ─────────────────────
   - id: reposteria.math-random-for-secrets
@@ -153,21 +171,25 @@ rules:
     paths:
       exclude:
         - "**/*.test.ts"
-        - "tests/**"
+        - "/tests/**"
     patterns:
+      - pattern: Math.random()
       - pattern-either:
-          - pattern: $NAME = <... Math.random() ...>
-          - pattern: const $NAME = <... Math.random() ...>;
-          - pattern: let $NAME = <... Math.random() ...>;
-          - pattern: |
-              {..., $NAME: <... Math.random() ...>, ...}
-          - pattern: |
-              function $NAME(...) { ... Math.random() ... }
-          - pattern: |
-              const $NAME = (...) => <... Math.random() ...>;
+          - pattern-inside: $NAME = $E
+          - pattern-inside: const $NAME = $E;
+          - pattern-inside: let $NAME = $E;
+          - pattern-inside: |
+              {..., $NAME: $E, ...}
+          - pattern-inside: |
+              function $NAME(...) { ... }
+          - pattern-inside: |
+              const $NAME = (...) => $E;
+          - pattern-inside: |
+              $OBJ.$NAME = $E
       - metavariable-regex:
           metavariable: $NAME
-          regex: (?i).*(token|secret|nonce|passw|pwd|otp|salt|session|apikey|api_key|key|code|codigo|pin|voucher|coupon|cupon|giftcard|tarjeta|recovery|reset|csrf|signature|firma).*
+          # "key" a secas se excluye: es la prop key de las listas de React, no un secreto
+          regex: (?i)^(?!key$).*(token|secret|nonce|passw|pwd|otp|salt|session|apikey|api_key|key|code|codigo|pin|voucher|coupon|cupon|giftcard|tarjeta|recovery|reset|csrf|signature|firma).*
 
   # ───────────────────── Cookies accesibles desde JavaScript ─────────────────────
   - id: reposteria.cookie-without-httponly
@@ -192,12 +214,12 @@ rules:
               metavariable: $JAR
               # cookies() de next/headers, res.cookies, jar, cookieStore...
               regex: (?i).*(cookie|jar).*
-          - pattern-not: $JAR.set($NAME, $VALUE, {..., httpOnly: true, ...})
-          - pattern-not: $JAR.set({..., httpOnly: true, ...})
+          - pattern-not: '$JAR.set($NAME, $VALUE, {..., httpOnly: true, ...})'
+          - pattern-not: '$JAR.set({..., httpOnly: true, ...})'
           # Borrar una cookie (maxAge 0 / valor vacío) no expone nada
           - pattern-not: $JAR.set($NAME, "", ...)
-          - pattern-not: $JAR.set($NAME, $VALUE, {..., maxAge: 0, ...})
-      - pattern: $JAR.set($NAME, $VALUE, {..., httpOnly: false, ...})
+          - pattern-not: '$JAR.set($NAME, $VALUE, {..., maxAge: 0, ...})'
+      - pattern: '$JAR.set($NAME, $VALUE, {..., httpOnly: false, ...})'
       - pattern: document.cookie = $X
 
   # ───────────────────── SSRF: fetch con URL del usuario ─────────────────────
