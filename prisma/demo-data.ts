@@ -689,6 +689,6 @@ export const DEMO_PROMOTIONS = [
   },
 ];
 
-// Horario por defecto: el del Mercado de Bailén, de lunes a sábado por la mañana (las fuentes
-// públicas dan 9:00-14:00 u 8:00-15:00: confírmalo y ajústalo en /admin/ajustes → Horario).
-export const DEFAULT_OPENING_HOURS = [1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opensAt: "09:00", closesAt: "14:00" }));
+// Horario del puesto (confirmado por la repostería): de martes a sábado, de 10:00 a 16:00.
+// weekday: 0 = domingo, 1 = lunes… 6 = sábado. Se cambia en /admin/calendario.
+export const DEFAULT_OPENING_HOURS = [2, 3, 4, 5, 6].map((weekday) => ({ weekday, opensAt: "10:00", closesAt: "16:00" }));
