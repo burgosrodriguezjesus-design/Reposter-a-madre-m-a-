@@ -1,9 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["cdg1"],
-  "git": { "deploymentEnabled": false },
+  "regions": [
+    "cdg1"
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "main": false,
+      "claude/seguridad-alta-disponibilidad": false,
+      "claude/rediseno-elegante": true
+    }
+  },
   "crons": [
-    { "path": "/api/cron", "schedule": "0 7 * * *" },
-    { "path": "/api/cron/jobs", "schedule": "50 6 * * *" }
+    {
+      "path": "/api/cron",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/jobs",
+      "schedule": "50 6 * * *"
+    }
   ]
 }
